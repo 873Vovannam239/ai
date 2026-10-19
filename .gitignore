@@ -1,0 +1,7 @@
+.env
+**/node_modules/
+**/.next/
+**/dist/
+**/*.log
+.DS_Store
+.backup_12_workflows_*/
