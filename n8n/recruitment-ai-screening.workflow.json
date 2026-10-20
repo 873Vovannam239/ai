@@ -1,0 +1,352 @@
+{
+  "name": "TalentFlow PRO | 02 · AI Screening – Groq live",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recruitment-ai-screening",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "166c426f-4397-492e-a51d-270ddcaa4c04",
+      "name": "Webhook – 02 · AI Screening – Groq live",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "fdce3c6b-5ee5-46ac-96a1-df98285f931b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "b13489ad-6418-4366-ac08-3d5c581ee242",
+              "leftValue": "={{$json.headers['x-automation-token']}}",
+              "rightValue": "={{$env.WORKFLOW_SHARED_SECRET}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "16f6608f-792c-41f7-a24d-7d51bfcb4190",
+      "name": "01 · Verify shared secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst body = $json.body ?? {};\nconst candidateId = String(body.candidateId ?? '').trim();\nconst payload = {candidateId};\nreturn [{json:{payload,inputValid:uuid.test(candidateId)}}];"
+      },
+      "id": "4028d98e-9284-45b8-a731-4e922006be72",
+      "name": "02 · Validate and normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "4fe5f3a8-b80f-4dab-acf4-b890400f3ce3",
+              "leftValue": "={{$json.inputValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "0cc88ac3-e622-4f49-9f88-e6c003157932",
+      "name": "03 · Required fields valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/screen-cv",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "c7b41576-cd39-4f79-9ac3-73e0999b1405",
+      "name": "04 · NestJS business operation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1130,
+        240
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $json || {};\nconst transportError = Boolean(r.error) || Number(r.statusCode || 200) >= 400;\nlet businessOk = true;\n// HTTP 2xx means the backend accepted and completed this operation.\nconst error = transportError ? String(r.error?.message || r.message || 'Backend request failed') : (!businessOk ? String(r.message || 'Backend did not confirm success') : '');\nreturn [{json:{ok:!transportError && businessOk,result:r,error}}];"
+      },
+      "id": "c3dd0033-8f97-41e6-bdb8-9100585438ba",
+      "name": "05 · Evaluate backend result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1350,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "ed4153fa-b474-4d7d-b7a0-a2bee993aeea",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "1dda30d4-72c8-40c1-9a37-5655d58e4762",
+      "name": "06 · Operation succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1570,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, workflow: \"02 · AI Screening – Groq live\", result: $json.result } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "e94d7b3d-6bb8-439c-b998-0c5be7dee613",
+      "name": "07 · Respond success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1800,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.error || \"Backend operation failed\", result: $json.result } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "79d99868-3f03-4b35-beb1-a19d0c127ced",
+      "name": "07 · Respond backend error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1800,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Missing or invalid input fields\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "f041263b-894a-4c3f-88b0-f5932e7d4cfa",
+      "name": "Reject invalid input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1130,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Invalid workflow secret\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "53b72ebc-5d2d-4f3a-9ef7-79debe9524bf",
+      "name": "Reject invalid secret",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        680,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook – 02 · AI Screening – Groq live": {
+      "main": [
+        [
+          {
+            "node": "01 · Verify shared secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · Verify shared secret": {
+      "main": [
+        [
+          {
+            "node": "02 · Validate and normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · Validate and normalize input": {
+      "main": [
+        [
+          {
+            "node": "03 · Required fields valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · Required fields valid": {
+      "main": [
+        [
+          {
+            "node": "04 · NestJS business operation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · NestJS business operation": {
+      "main": [
+        [
+          {
+            "node": "05 · Evaluate backend result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · Evaluate backend result": {
+      "main": [
+        [
+          {
+            "node": "06 · Operation succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · Operation succeeded": {
+      "main": [
+        [
+          {
+            "node": "07 · Respond success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "07 · Respond backend error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}
