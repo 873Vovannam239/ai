@@ -1,0 +1,352 @@
+{
+  "name": "TalentFlow PRO | 07 · CV text normalization",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recruitment-cv-normalize",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2348180f-4423-449e-9c21-c37266345d09",
+      "name": "Webhook – 07 · CV text normalization",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "95ad4bdc-6183-4a50-9e26-a6ec832a4f6e"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "8c9a9fa2-5ede-40c2-a1af-ad994bac0804",
+              "leftValue": "={{$json.headers['x-automation-token']}}",
+              "rightValue": "={{$env.WORKFLOW_SHARED_SECRET}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "64082999-7b2b-4767-8485-3fb3b8d29af5",
+      "name": "01 · Verify shared secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst body = $json.body ?? {};\nconst candidateId = String(body.candidateId ?? '').trim();\nconst payload = {candidateId};\nreturn [{json:{payload,inputValid:uuid.test(candidateId)}}];"
+      },
+      "id": "b42c3475-cb3c-4066-9dcd-c72aba490423",
+      "name": "02 · Validate and normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "23710cde-714c-41b2-a165-dced0fe94c06",
+              "leftValue": "={{$json.inputValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "815a3ff3-0769-4c26-93b6-5693a694c169",
+      "name": "03 · Required fields valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/normalize-cv",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "15e84d25-27c2-4aee-8e8a-a998d2b36047",
+      "name": "04 · NestJS business operation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1130,
+        240
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $json || {};\nconst transportError = Boolean(r.error) || Number(r.statusCode || 200) >= 400;\nlet businessOk = true;\n// HTTP 2xx means the backend accepted and completed this operation.\nconst error = transportError ? String(r.error?.message || r.message || 'Backend request failed') : (!businessOk ? String(r.message || 'Backend did not confirm success') : '');\nreturn [{json:{ok:!transportError && businessOk,result:r,error}}];"
+      },
+      "id": "9b7513c7-3313-475e-b2cc-f91f1cd9231b",
+      "name": "05 · Evaluate backend result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1350,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "bd9a25f3-06ab-4ed1-b350-b13bc4fd22df",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "55960fa7-abc1-44e9-b268-1e7f4791e67e",
+      "name": "06 · Operation succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1570,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, workflow: \"07 · CV text normalization\", result: $json.result } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "d3de589c-bb41-4507-a5ea-2f962a70ff4d",
+      "name": "07 · Respond success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1800,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.error || \"Backend operation failed\", result: $json.result } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "87acdd4d-b8e3-49bb-b233-1058e8c714ff",
+      "name": "07 · Respond backend error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1800,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Missing or invalid input fields\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "c9db38fe-dedb-433b-9e3d-e3a1a776289b",
+      "name": "Reject invalid input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1130,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Invalid workflow secret\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "0a510ef0-f622-4381-8e8e-9bd824ded8dc",
+      "name": "Reject invalid secret",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        680,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook – 07 · CV text normalization": {
+      "main": [
+        [
+          {
+            "node": "01 · Verify shared secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · Verify shared secret": {
+      "main": [
+        [
+          {
+            "node": "02 · Validate and normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · Validate and normalize input": {
+      "main": [
+        [
+          {
+            "node": "03 · Required fields valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · Required fields valid": {
+      "main": [
+        [
+          {
+            "node": "04 · NestJS business operation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · NestJS business operation": {
+      "main": [
+        [
+          {
+            "node": "05 · Evaluate backend result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · Evaluate backend result": {
+      "main": [
+        [
+          {
+            "node": "06 · Operation succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · Operation succeeded": {
+      "main": [
+        [
+          {
+            "node": "07 · Respond success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "07 · Respond backend error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}
