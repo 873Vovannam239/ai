@@ -1,0 +1,352 @@
+{
+  "name": "TalentFlow PRO | 10 · Notify recruiter of AI status",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recruitment-status-notify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a3d8796b-9555-4949-9133-b7fec262ab00",
+      "name": "Webhook – 10 · Notify recruiter of AI status",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "c1faa8f9-e5d6-4aed-a389-39dfa76d6efd"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "846cda93-cfee-4a33-80e9-fd072ce711df",
+              "leftValue": "={{$json.headers['x-automation-token']}}",
+              "rightValue": "={{$env.WORKFLOW_SHARED_SECRET}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "6cc5d1fa-ee29-4a6b-b325-857fff430ab1",
+      "name": "01 · Verify shared secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst body = $json.body ?? {};\nconst candidateId = String(body.candidateId ?? '').trim();\nconst payload = {candidateId};\nreturn [{json:{payload,inputValid:uuid.test(candidateId)}}];"
+      },
+      "id": "7d83105d-4296-4003-aa20-d1995f9fe13b",
+      "name": "02 · Validate and normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "30cd1a84-e7a2-4bec-94fb-ec02a0514000",
+              "leftValue": "={{$json.inputValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "b75fa77d-a974-447b-9742-c8a8b1415fc7",
+      "name": "03 · Required fields valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/notify-candidate-status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "b31fed23-7185-4220-9133-8ccd4e430143",
+      "name": "04 · NestJS business operation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1130,
+        240
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $json || {};\nconst transportError = Boolean(r.error) || Number(r.statusCode || 200) >= 400;\nlet businessOk = true;\nbusinessOk = r.sent === true;\nconst error = transportError ? String(r.error?.message || r.message || 'Backend request failed') : (!businessOk ? String(r.message || 'Backend did not confirm success') : '');\nreturn [{json:{ok:!transportError && businessOk,result:r,error}}];"
+      },
+      "id": "0f65664a-0d68-46e2-84bb-9d90fb156dfa",
+      "name": "05 · Evaluate backend result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1350,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "57a1f2f4-2c05-4990-b93d-bbd32702d504",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "6598207b-9eba-4295-80e9-e2093b95e683",
+      "name": "06 · Operation succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1570,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, workflow: \"10 · Notify recruiter of AI status\", result: $json.result } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "02825fd7-2121-462f-8f4a-152c53add2a3",
+      "name": "07 · Respond success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1800,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.error || \"Backend operation failed\", result: $json.result } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "efa37e48-1f5a-4a93-8a44-5174a6fa9878",
+      "name": "07 · Respond backend error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1800,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Missing or invalid input fields\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "c76385ba-972a-44ec-b1ec-bfc4737db2fc",
+      "name": "Reject invalid input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1130,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Invalid workflow secret\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "fb776c83-868e-41df-85ab-236167248eaa",
+      "name": "Reject invalid secret",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        680,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook – 10 · Notify recruiter of AI status": {
+      "main": [
+        [
+          {
+            "node": "01 · Verify shared secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · Verify shared secret": {
+      "main": [
+        [
+          {
+            "node": "02 · Validate and normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · Validate and normalize input": {
+      "main": [
+        [
+          {
+            "node": "03 · Required fields valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · Required fields valid": {
+      "main": [
+        [
+          {
+            "node": "04 · NestJS business operation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · NestJS business operation": {
+      "main": [
+        [
+          {
+            "node": "05 · Evaluate backend result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · Evaluate backend result": {
+      "main": [
+        [
+          {
+            "node": "06 · Operation succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · Operation succeeded": {
+      "main": [
+        [
+          {
+            "node": "07 · Respond success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "07 · Respond backend error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}
