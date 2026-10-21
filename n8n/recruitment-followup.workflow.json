@@ -1,0 +1,547 @@
+{
+  "name": "TalentFlow PRO | 05 · Follow-up – scheduled interview reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recruitment-followup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "664e6df8-23e0-4d48-b85e-deca35f38181",
+      "name": "Webhook – manual follow-up",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 260],
+      "webhookId": "e7938ac1-b859-41cc-9b0a-d9066d15b01e"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "aebfe21c-3566-42c6-9dbd-049f15573d3b",
+              "leftValue": "={{$json.headers['x-automation-token']}}",
+              "rightValue": "={{$env.WORKFLOW_SHARED_SECRET}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "7e05dccb-0940-4d5f-ac1c-9474230cf1cc",
+      "name": "01 · Verify webhook secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 260]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body=$json.body ?? {}; return [{json:{payload:{source:body.manual?'manual':'webhook',manual:!!body.manual},inputValid:true}}];"
+      },
+      "id": "4a94d9b9-7bf2-4d77-96fc-9caad2bf298c",
+      "name": "02 · Normalize manual request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "aa47f3d0-436e-4471-b9ce-7932c8680df3",
+              "leftValue": "={{$json.inputValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "d81044fd-55ad-4b67-9951-0026446db896",
+      "name": "03 · Manual input valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/send-reminders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "2003f88a-e701-4537-a99f-9f3dcc15c009",
+      "name": "04 · Run manual reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 180],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$json||{}; const transportError=Boolean(r.error)||Number(r.statusCode||200)>=400; return [{json:{ok:!transportError,result:r,error:transportError?String(r.error?.message||r.message||'Reminder operation failed'):''}}];"
+      },
+      "id": "b7a3bf78-72b4-437f-9843-e1890f3eabb8",
+      "name": "05 · Evaluate manual result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "1d2c4c96-20dc-442b-8206-63781aad7a20",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "53bc5f4d-4df0-458e-af19-ad7bb165679f",
+      "name": "06 · Manual operation succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1550, 180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, workflow: \"05 Follow-up\", result: $json.result } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "02b6b372-592b-42e9-bf25-885f02047bd7",
+      "name": "Respond manual success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1770, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.error || \"Reminder operation failed\" } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "f1db0c07-bc75-4446-91bc-acbd1b735284",
+      "name": "Respond manual failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1770, 260]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Invalid workflow secret\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "e25b9ae9-2010-4389-8153-6f4177aadff1",
+      "name": "Reject invalid secret",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [680, 460]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Invalid manual follow-up request\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "c3c56400-098b-4557-a378-aaa890e977b5",
+      "name": "Reject invalid manual request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "70f1ebb1-20b5-459d-b1cb-ace1c1e5dc35",
+      "name": "Schedule – every hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 650]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{payload:{source:'schedule',manual:false},inputValid:true}}];"
+      },
+      "id": "7ba25f3d-3d4a-4b42-91e3-8d51d4e4c567",
+      "name": "Prepare scheduled reminder request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 650]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "e67b6c75-b8ed-4512-9ac8-a153e15810d2",
+              "leftValue": "={{$json.inputValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "03c164ec-91c7-401e-a651-13a89044caa1",
+      "name": "Validate scheduled reminder request",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 650]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/send-reminders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "d0a9fdf0-c54c-4fad-a97d-2ab7412f91b5",
+      "name": "Run scheduled reminders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 610],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$json||{}; const transportError=Boolean(r.error)||Number(r.statusCode||200)>=400; return [{json:{ok:!transportError,result:r,error:transportError?String(r.error?.message||r.message||'Reminder operation failed'):''}}];"
+      },
+      "id": "62780a71-60d2-4ea8-adf2-0611a91429a9",
+      "name": "Evaluate scheduled reminder result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 610]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "b2a0dcad-5b30-4289-bd08-6999ecb056b3",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "aab886cc-d475-4f0a-b129-26c2ea333303",
+      "name": "Scheduled reminders succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1330, 610]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{ok:true,result:$json.result}}];"
+      },
+      "id": "f374794f-b837-4289-85c0-5f26cb13bc6f",
+      "name": "Finish – scheduled reminders complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1550, 550]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{ok:false,error:$json.error||'Reminder operation failed'}}];"
+      },
+      "id": "94cf4d3d-d498-4e9e-a7e7-6f73078fc951",
+      "name": "Finish – scheduled reminders failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1550, 710]
+    }
+  ],
+  "connections": {
+    "Webhook – manual follow-up": {
+      "main": [
+        [
+          {
+            "node": "01 · Verify webhook secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · Verify webhook secret": {
+      "main": [
+        [
+          {
+            "node": "02 · Normalize manual request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · Normalize manual request": {
+      "main": [
+        [
+          {
+            "node": "03 · Manual input valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · Manual input valid": {
+      "main": [
+        [
+          {
+            "node": "04 · Run manual reminders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid manual request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · Run manual reminders": {
+      "main": [
+        [
+          {
+            "node": "05 · Evaluate manual result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · Evaluate manual result": {
+      "main": [
+        [
+          {
+            "node": "06 · Manual operation succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · Manual operation succeeded": {
+      "main": [
+        [
+          {
+            "node": "Respond manual success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond manual failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule – every hour": {
+      "main": [
+        [
+          {
+            "node": "Prepare scheduled reminder request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare scheduled reminder request": {
+      "main": [
+        [
+          {
+            "node": "Validate scheduled reminder request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate scheduled reminder request": {
+      "main": [
+        [
+          {
+            "node": "Run scheduled reminders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish – scheduled reminders failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run scheduled reminders": {
+      "main": [
+        [
+          {
+            "node": "Evaluate scheduled reminder result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate scheduled reminder result": {
+      "main": [
+        [
+          {
+            "node": "Scheduled reminders succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scheduled reminders succeeded": {
+      "main": [
+        [
+          {
+            "node": "Finish – scheduled reminders complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish – scheduled reminders failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}
