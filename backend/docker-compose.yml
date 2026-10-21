@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: recruitment
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: recruitment
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recruitment -d recruitment"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: "4000"
+      DATABASE_URL: postgres://recruitment:${POSTGRES_PASSWORD}@db:5432/recruitment
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Set ADMIN_API_KEY}
+      WORKFLOW_SHARED_SECRET: ${WORKFLOW_SHARED_SECRET:?Set WORKFLOW_SHARED_SECRET}
+      N8N_WEBHOOK_URL: http://n8n:5678/webhook/recruitment-invite
+      N8N_INTERNAL_URL: http://n8n:5678
+      AUTOMATION_PRO_ENABLED: "true"
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      RECRUITMENT_NOTIFY_EMAIL: ${RECRUITMENT_NOTIFY_EMAIL:-}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:4000:4000"
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      INTERNAL_API_URL: http://api:4000/api
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Set ADMIN_API_KEY}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?Set ADMIN_SESSION_SECRET}
+      NODE_ENV: production
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:3001:3000"
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      N8N_EDITOR_BASE_URL: http://localhost:5679
+      WEBHOOK_URL: http://localhost:5679/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      WORKFLOW_SHARED_SECRET: ${WORKFLOW_SHARED_SECRET:?Set WORKFLOW_SHARED_SECRET}
+      GENERIC_TIMEZONE: Asia/Ho_Chi_Minh
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:5679:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n:/home/node/workflows:ro
+volumes:
+  postgres_data:
+  n8n_data:
