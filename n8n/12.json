@@ -1,0 +1,270 @@
+{
+  "name": "TalentFlow PRO | 12 · Error monitoring and audit",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f8833cb0-68a7-4368-b754-fde630f81f8a",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const root=$json||{};\nconst error=String(root.execution?.error?.message || root.trigger?.error?.message || root.error?.message || root.error || 'Unknown n8n error').slice(0,800);\nconst workflow=String(root.workflow?.name || root.workflowName || 'unknown-workflow').slice(0,120);\nconst executionId=String(root.execution?.id || root.executionId || '').slice(0,100);\nconst severity=/credential|unauthori[sz]ed|database|smtp|quota|secret|401|403|500|timeout/i.test(error)?'critical':'error';\nconst payload={workflow,executionId,severity,error};\nreturn [{json:{payload,inputValid:Boolean(error.trim())}}];"
+      },
+      "id": "6dac9b18-213a-49d3-80b8-9eeb97a8e3ad",
+      "name": "Normalize n8n error payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        470,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "67cf2ce1-f5c3-430a-ab80-444e6f17f42a",
+              "leftValue": "={{$json.inputValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "eba185d2-3d26-48ec-94f4-ff90fb63f7d2",
+      "name": "Check error details",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/log-error",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "d767215c-95f3-40dd-bfc1-e76a380c9d1c",
+      "name": "Write error to TalentFlow audit log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        930,
+        260
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$json||{}; const transportError=Boolean(r.error)||Number(r.statusCode||200)>=400; return [{json:{ok:!transportError,result:r,error:transportError?String(r.error?.message||r.message||'Audit logging failed'):''}}];"
+      },
+      "id": "b59f2389-a0e7-4c3c-aa1a-0d53f1e6e131",
+      "name": "Evaluate audit API response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "41808ea6-e26a-4a6d-a263-17d32172af7f",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "d25fdb4a-6688-4edc-a74f-55263c45a366",
+      "name": "Audit record saved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{recorded:true,alertSent:Boolean($json.result?.alertSent),workflow:$json.result?.workflow,executionId:$json.result?.executionId}}];"
+      },
+      "id": "23f01b84-6d8b-467f-ab73-163f2fd92ced",
+      "name": "Finish – error recorded",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{recorded:false,error:$json.error||'Could not write error log'}}];"
+      },
+      "id": "43832d6b-f4c4-458a-bd0f-6c13b238f426",
+      "name": "Finish – audit API failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{recorded:false,error:'Error trigger payload did not contain an error'}}];"
+      },
+      "id": "90b5dd62-6926-4f02-9c4f-b6ccc8574da7",
+      "name": "Finish – empty error payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        930,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize n8n error payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize n8n error payload": {
+      "main": [
+        [
+          {
+            "node": "Check error details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check error details": {
+      "main": [
+        [
+          {
+            "node": "Write error to TalentFlow audit log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish – empty error payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write error to TalentFlow audit log": {
+      "main": [
+        [
+          {
+            "node": "Evaluate audit API response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate audit API response": {
+      "main": [
+        [
+          {
+            "node": "Audit record saved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit record saved": {
+      "main": [
+        [
+          {
+            "node": "Finish – error recorded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Finish – audit API failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,591 @@
+{
+  "name": "TalentFlow PRO | 11 · Daily recruitment report",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recruitment-daily-report",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "9245b7fd-4e5b-426d-886b-f1a95b806312",
+      "name": "Webhook – run report manually",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        250
+      ],
+      "webhookId": "ec2d8fcc-af78-446e-82bc-c2f3e55b1415"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "7463bdfb-966a-473d-b1fd-ceb142846155",
+              "leftValue": "={{$json.headers['x-automation-token']}}",
+              "rightValue": "={{$env.WORKFLOW_SHARED_SECRET}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "37160a78-5ff7-4dae-8e78-10cc40334570",
+      "name": "01 · Verify webhook secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        450,
+        250
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body=$json.body ?? {}; return [{json:{payload:{source:body.source||'manual'},inputValid:true}}];"
+      },
+      "id": "afdd0045-d579-4cb5-a85d-fee1a8f4c67d",
+      "name": "02 · Validate manual report request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        670,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "80bec1ae-48ae-49b2-a5e7-61cb8d6dde37",
+              "leftValue": "={{$json.inputValid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "083cbbb4-c34e-420b-b8bf-94d38a0c16c9",
+      "name": "03 · Manual request valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/daily-report",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "2ccaa966-763e-47da-8c6f-372e3979d684",
+      "name": "04 · Generate and email report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        180
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$json||{}; const transportError=Boolean(r.error)||Number(r.statusCode||200)>=400; return [{json:{ok:!transportError,result:r,error:transportError?String(r.error?.message||r.message||'Report generation failed'):''}}];"
+      },
+      "id": "8be89195-0948-4ee4-b41b-24604613a2ac",
+      "name": "05 · Evaluate manual report result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1310,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "31d5b97b-b2a5-4931-bb51-c6d250517209",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "41344548-9553-4ac1-9e6d-ab53235fff7f",
+      "name": "06 · Manual report succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1510,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, workflow: \"11 Daily report\", result: $json.result } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "02d095e7-ac70-4e11-a5e0-ceca7ca24ed4",
+      "name": "Respond report success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1730,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: $json.error || \"Report generation failed\" } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "2368af76-680f-4a2b-8b0b-467317d3bebb",
+      "name": "Respond report failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1730,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Invalid report request\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "49fb0f3e-d309-4e34-90d0-0402fa64f90b",
+      "name": "Reject invalid report request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        430
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: \"Invalid workflow secret\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "dad178e0-0326-4733-8727-10309398f5eb",
+      "name": "Reject invalid secret",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        670,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "36c43f79-99b8-4297-bd66-17480e7c1032",
+      "name": "Schedule – every day at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        650
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{payload:{source:'schedule'}}}];"
+      },
+      "id": "68b833b7-b9c2-46ef-9083-856df78784eb",
+      "name": "Prepare scheduled report request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        470,
+        650
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/daily-report",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-flow-token",
+              "value": "={{$env.WORKFLOW_SHARED_SECRET}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "5eb7a616-72ef-4b1f-a2eb-93f66cbc105d",
+      "name": "Generate scheduled report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        650
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r=$json||{}; const transportError=Boolean(r.error)||Number(r.statusCode||200)>=400; return [{json:{ok:!transportError,result:r,error:transportError?String(r.error?.message||r.message||'Report generation failed'):''}}];"
+      },
+      "id": "2bad8bb9-ee96-4937-b24b-9bfc583dcc60",
+      "name": "Evaluate scheduled report result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        970,
+        650
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c55232a5-6a83-41e9-970d-fcd46417540d",
+              "leftValue": "={{$json.ok}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      },
+      "id": "19986385-fab8-4d17-8d8b-f2dc7cf665bd",
+      "name": "07 · Scheduled report succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1190,
+        650
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{ok:true,report:$json.result}}];"
+      },
+      "id": "f8b052b6-9b6b-4378-89a2-ce8a544d412a",
+      "name": "Record scheduled report success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1410,
+        590
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{ok:false,error:$json.error||'Report failed'}}];"
+      },
+      "id": "62dd1e4a-9895-4141-bac5-72b669c417e2",
+      "name": "Record scheduled report failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1410,
+        730
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{source:'schedule',result:$json}}];"
+      },
+      "id": "b4996206-0db5-48a5-8fb9-51d6ad8b4a2c",
+      "name": "Finalize scheduled report execution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1630,
+        650
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook – run report manually": {
+      "main": [
+        [
+          {
+            "node": "01 · Verify webhook secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 · Verify webhook secret": {
+      "main": [
+        [
+          {
+            "node": "02 · Validate manual report request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 · Validate manual report request": {
+      "main": [
+        [
+          {
+            "node": "03 · Manual request valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 · Manual request valid": {
+      "main": [
+        [
+          {
+            "node": "04 · Generate and email report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject invalid report request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 · Generate and email report": {
+      "main": [
+        [
+          {
+            "node": "05 · Evaluate manual report result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 · Evaluate manual report result": {
+      "main": [
+        [
+          {
+            "node": "06 · Manual report succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 · Manual report succeeded": {
+      "main": [
+        [
+          {
+            "node": "Respond report success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond report failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule – every day at 08:00": {
+      "main": [
+        [
+          {
+            "node": "Prepare scheduled report request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare scheduled report request": {
+      "main": [
+        [
+          {
+            "node": "Generate scheduled report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate scheduled report": {
+      "main": [
+        [
+          {
+            "node": "Evaluate scheduled report result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate scheduled report result": {
+      "main": [
+        [
+          {
+            "node": "07 · Scheduled report succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "07 · Scheduled report succeeded": {
+      "main": [
+        [
+          {
+            "node": "Record scheduled report success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record scheduled report failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record scheduled report success": {
+      "main": [
+        [
+          {
+            "node": "Finalize scheduled report execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record scheduled report failure": {
+      "main": [
+        [
+          {
+            "node": "Finalize scheduled report execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": []
+}
