@@ -84,7 +84,7 @@ export class AppService {
             FROM interviews i JOIN candidates c ON c.id=i.candidate_id JOIN jobs j ON j.id=c.job_id
             WHERE i.candidate_id=$1 AND i.starts_at=$2::timestamptz ORDER BY i.created_at DESC LIMIT 1`,[candidateId,new Date(startsAt)])
         : undefined;
-      if(existing) return {...existing,automation:{ok:existing.email_status==='sent',emailStatus:existing.email_status,message:existing.email_status==='sent'?'Workflow n8n đã tạo lịch và Gmail xác nhận gửi thư.':(existing.email_error||'Lịch đã tạo; kiểm tra trạng thái email trong ứng dụng/n8n.')}};
+      if(existing) return {...existing,automation:{ok:existing.email_status==='sent',emailStatus:existing.email_status,message:existing.email_status==='sent'?'Workflow n8n đã tạo lịch và Gmail xác nhận gửi thư.':(existing.email_error||'Lịch đã tạo; kiểm tra trạng thái email trong ứng dụng/n8n.'),aiInterviewGuide:dispatched.result?.aiInterviewGuide||[]}};
       if(dispatched.ok) {
         await this.db.event('automation','Workflow đặt lịch trả thành công nhưng không tìm thấy bản ghi; backend sẽ thử quy trình dự phòng.');
       } else {
@@ -99,7 +99,8 @@ export class AppService {
     const minutes=Number(data?.durationMinutes||30);
     if(!uuid(candidateId)||!Number.isFinite(Date.parse(startsAt))||new Date(startsAt).getTime()<Date.now()+60000)throw new BadRequestException('Chọn ứng viên và thời gian phỏng vấn trong tương lai.');
     if(!Number.isInteger(minutes)||minutes<15||minutes>180)throw new BadRequestException('Thời lượng phải từ 15–180 phút.');
-    const c=await this.db.one('SELECT * FROM candidates WHERE id=$1',[candidateId]);
+    const c=await this.db.one(`SELECT c.*,j.title AS job_title,j.description AS job_description,j.requirements AS job_requirements
+      FROM candidates c JOIN jobs j ON j.id=c.job_id WHERE c.id=$1`,[candidateId]);
     if(!c||c.ai_status!=='ready')throw new BadRequestException('Chỉ đặt lịch cho ứng viên đã phân tích thành công.');
     const link=clean(data?.meetingLink,2000),notes=clean(data?.notes,2000);
     if(mode==='online' && link && !/^https:\/\//i.test(link))throw new BadRequestException('Đường dẫn phỏng vấn trực tuyến phải bắt đầu bằng https://');
@@ -109,8 +110,18 @@ export class AppService {
     if(conflict)throw new ConflictException('Ứng viên đã có lịch phỏng vấn trùng thời gian. Hãy chọn khung giờ khác.');
     const interview=await this.db.one('INSERT INTO interviews(candidate_id,starts_at,duration_minutes,mode,meeting_link,notes) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[candidateId,new Date(startsAt),minutes,mode,link,notes]);
     await this.db.event('interview',`Đã đặt lịch phỏng vấn cho ${c.name}`,interview!.id);
-    const automation=await this.triggerAutomation(interview!.id);
-    return {...interview,automation};
+    const [automation, aiInterviewGuide]=await Promise.all([
+      this.triggerAutomation(interview!.id),
+      this.groq.generateInterviewGuide(
+        {title:c.job_title,requirements:c.job_requirements},
+        {ai_summary:String(c.ai_summary||'').replaceAll(String(c.name||''),'[ứng viên]'),ai_skills:c.ai_skills,ai_gaps:c.ai_gaps}
+      ).catch(async (error:any)=>{
+        await this.db.event('ai',`Không tạo được gợi ý phỏng vấn bằng Groq: ${clean(error?.message||error,180)}`,interview!.id);
+        return [] as string[];
+      })
+    ]);
+    if(aiInterviewGuide.length) await this.db.event('ai',`Groq tạo ${aiInterviewGuide.length} câu hỏi gợi ý phỏng vấn theo vị trí và kỹ năng hồ sơ.`,interview!.id);
+    return {...interview,automation,aiInterviewGuide};
   }
   async triggerAutomation(interviewId:string) {
     const webhook=process.env.N8N_WEBHOOK_URL;
@@ -143,11 +154,11 @@ export class AppService {
       AND (email_status IN ('pending','failed') OR (email_status='sending' AND email_attempt_started_at<now()-interval '3 minutes')) RETURNING id`,[id]);
     if(!claimed) return {sent:false,processing:true,message:'Email đang được xử lý, không gửi trùng.'};
     try {
-      const messageId=await this.mail.sendInvite(i);
+      const delivery=await this.mail.sendInvite(i);
       await this.db.rows("UPDATE interviews SET email_status='sent',email_error=NULL,email_sent_at=now() WHERE id=$1",[id]);
-      await this.db.event('email',`n8n → Gmail đã gửi thư mời phỏng vấn tới ${i.candidate_email}`,id);
-      await this.record('interview-invite',id,'success','SMTP Gmail xác nhận đã gửi lời mời');
-      return {sent:true,messageId};
+      await this.db.event('email',`n8n → Gmail đã gửi thư mời phỏng vấn tới ${i.candidate_email}${delivery.aiAssisted?' (Groq hỗ trợ soạn nội dung)':' (dùng nội dung chuẩn)'}`,id);
+      await this.record('interview-invite',id,'success',`SMTP Gmail gửi thư mời; Groq ${delivery.aiAssisted?'đã soạn nội dung':'không khả dụng, dùng nội dung chuẩn'}`);
+      return {sent:true,messageId:delivery.messageId,aiAssisted:delivery.aiAssisted};
     }catch(e:any){
       const msg=clean(e?.response?.message||e?.message||'SMTP lỗi',300);
       await this.db.rows("UPDATE interviews SET email_status='failed',email_error=$2 WHERE id=$1",[id,msg]);
@@ -162,7 +173,7 @@ private async record(workflow:string, refId:string, status:'received'|'success'|
   catch(e:any){this.logger.warn(`automation_runs chưa migrate: ${e.message}`);}
 }
 async workflowRuns(){return this.db.rows('SELECT * FROM automation_runs ORDER BY id DESC LIMIT 80');}
-private async dispatch(workflow:string, body:any):Promise<{ok:boolean;message:string}> {
+private async dispatch(workflow:string, body:any):Promise<{ok:boolean;message:string;result?:any}> {
   const paths:Record<string,string>={
     'cv-intake':'recruitment-cv-intake','ai-screening':'recruitment-ai-screening',
     'candidate-ranking':'recruitment-ranking','interview-invite':'recruitment-invite',
@@ -188,8 +199,10 @@ private async dispatch(workflow:string, body:any):Promise<{ok:boolean;message:st
       )
     });
     if(!res.ok) throw new Error(`n8n HTTP ${res.status}: ${(await res.text()).slice(0,160)}`);
+    const responseBody=await res.json().catch(()=>({}));
+    const result=responseBody?.result;
     await this.record(workflow,id,'received','n8n đã nhận sự kiện, xem Executions để xác nhận kết quả.');
-    return {ok:true,message:'Đã chuyển yêu cầu đến n8n. Kiểm tra Executions để xem kết quả.'};
+    return {ok:true,message:'Đã chuyển yêu cầu đến n8n. Kiểm tra Executions để xem kết quả.',result};
   }catch(e:any){
     const msg=clean(e?.message,250);
     await this.record(workflow,id,'failed',msg);
@@ -324,7 +337,7 @@ async processReminders(){
   const due=await this.db.rows(`SELECT i.id FROM interviews i WHERE i.status='scheduled' AND i.email_status='sent'
     AND i.starts_at>now()+interval '10 minutes' AND i.starts_at<=now()+interval '24 hours'
     AND i.reminder_status IN ('pending','failed') AND i.reminder_sent_at IS NULL ORDER BY i.starts_at LIMIT 20`);
-  let sent=0,failed=0;
+  let sent=0,failed=0,aiAssisted=0;
   for(const item of due){
     const claimed=await this.db.one(`UPDATE interviews SET reminder_status='sending',reminder_error=NULL WHERE id=$1
       AND reminder_status IN ('pending','failed') AND reminder_sent_at IS NULL RETURNING id`,[item.id]);
@@ -332,9 +345,10 @@ async processReminders(){
     const interview=await this.db.one(`SELECT i.*,c.name AS candidate_name,c.email AS candidate_email,j.title AS job_title
       FROM interviews i JOIN candidates c ON c.id=i.candidate_id JOIN jobs j ON j.id=c.job_id WHERE i.id=$1`,[item.id]);
     try{
-      await this.mail.sendReminder(interview);
+      const delivery=await this.mail.sendReminder(interview);
       await this.db.rows("UPDATE interviews SET reminder_status='sent',reminder_sent_at=now(),reminder_error=NULL WHERE id=$1",[item.id]);
-      await this.db.event('email',`n8n đã gửi thư nhắc lịch cho ${interview.candidate_name}`,item.id);
+      await this.db.event('email',`n8n đã gửi thư nhắc lịch cho ${interview.candidate_name}${delivery.aiAssisted?' (Groq hỗ trợ soạn nội dung)':' (dùng nội dung chuẩn)'}`,item.id);
+      if(delivery.aiAssisted)aiAssisted++;
       sent++;
     }catch(e:any){
       const msg=clean(e?.message||'SMTP lỗi',250);
@@ -343,8 +357,8 @@ async processReminders(){
       failed++;
     }
   }
-  await this.record('recruitment-followup','scheduled','success',`Đã nhắc ${sent}, lỗi ${failed}, hồ sơ đến hạn ${due.length}`);
-  return {due:due.length,sent,failed,window:'10 phút đến 24 giờ trước phỏng vấn'};
+  await this.record('recruitment-followup','scheduled','success',`Đã nhắc ${sent}, lỗi ${failed}, Groq hỗ trợ ${aiAssisted}, hồ sơ đến hạn ${due.length}`);
+  return {due:due.length,sent,failed,aiAssisted,window:'10 phút đến 24 giờ trước phỏng vấn'};
 }
 
   async events(){return this.db.rows('SELECT * FROM events ORDER BY created_at DESC LIMIT 100');}
