@@ -54,7 +54,7 @@ export class MailService {
     });
     return result.messageId;
   }
-  async sendReminder(interview:any): Promise<{messageId:string;aiAssisted:boolean}> {
+  async sendReminder(interview:any, beforeSend?:()=>Promise<void>): Promise<{messageId:string;aiAssisted:boolean}> {
     const user=process.env.SMTP_USER?.trim(),pass=process.env.SMTP_PASS?.trim();
     if(!user||!pass)throw new ServiceUnavailableException('Chưa cấu hình Gmail SMTP.');
     const port=Number(process.env.SMTP_PORT||465);
@@ -62,10 +62,11 @@ export class MailService {
     const time=new Intl.DateTimeFormat('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',dateStyle:'full',timeStyle:'short'}).format(new Date(interview.starts_at));
     const aiCopy=await this.aiCopy('reminder',interview);
     const content=`Chào ${interview.candidate_name},\n\n${aiCopy ? `${aiCopy}\n\n` : ''}Đây là thư nhắc lịch phỏng vấn vị trí ${interview.job_title} vào ${time} (giờ Việt Nam).\n${interview.mode==='online'?('Link: '+(interview.meeting_link||'Xem thư mời gốc')):('Địa điểm: '+(interview.notes||'Theo thư mời gốc'))}\n\nNếu cần thay đổi lịch, vui lòng phản hồi thư mời gốc.\nBộ phận tuyển dụng`;
-    const result=await transporter.sendMail({from:process.env.SMTP_FROM?.trim()||user,to:interview.candidate_email,subject:`Nhắc lịch phỏng vấn – ${interview.job_title}`,text:content});
+    await beforeSend?.();
+    const result=await transporter.sendMail({messageId:interview.reminder_message_id,from:process.env.SMTP_FROM?.trim()||user,to:interview.candidate_email,subject:`Nhắc lịch phỏng vấn – ${interview.job_title}`,text:content});
     return {messageId:result.messageId,aiAssisted:!!aiCopy};
   }
-  async sendInvite(interview:any): Promise<{messageId:string;aiAssisted:boolean}> {
+  async sendInvite(interview:any, beforeSend?:()=>Promise<void>): Promise<{messageId:string;aiAssisted:boolean}> {
     const user = process.env.SMTP_USER?.trim();
     const pass = process.env.SMTP_PASS?.trim();
     if (!user || !pass) throw new ServiceUnavailableException('Chưa cấu hình SMTP_USER hoặc SMTP_PASS để gửi Gmail thật.');
@@ -81,7 +82,8 @@ export class MailService {
     const subject = `Thư mời phỏng vấn – ${interview.job_title}`;
     const text = `Chào ${interview.candidate_name},\n\nChúng tôi trân trọng mời bạn tham gia phỏng vấn cho vị trí ${interview.job_title}.${aiCopy ? `\n\n${aiCopy}` : ''}\n\nThời gian: ${datetime} (giờ Việt Nam)\nThời lượng: ${interview.duration_minutes} phút\nHình thức: ${mode}\n${info}\n\nVui lòng phản hồi email này để xác nhận tham dự.\nTrân trọng,\nBộ phận tuyển dụng`;
     const html = `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#223044"><h2>Thư mời phỏng vấn</h2><p>Chào <b>${escapeHtml(interview.candidate_name)}</b>,</p><p>Chúng tôi trân trọng mời bạn tham gia phỏng vấn cho vị trí <b>${escapeHtml(interview.job_title)}</b>.</p>${aiCopy?`<p>${escapeHtml(aiCopy)}</p>`:''}<ul><li><b>Thời gian:</b> ${escapeHtml(datetime)} (giờ Việt Nam)</li><li><b>Thời lượng:</b> ${interview.duration_minutes} phút</li><li><b>Hình thức:</b> ${escapeHtml(mode)}</li><li>${escapeHtml(info)}</li></ul><p>Vui lòng phản hồi email để xác nhận tham dự.</p><p>Trân trọng,<br/>Bộ phận tuyển dụng</p></div>`;
-    const result = await transporter.sendMail({from:process.env.SMTP_FROM?.trim() || user, to:interview.candidate_email,subject,text,html});
+    await beforeSend?.();
+    const result = await transporter.sendMail({messageId:interview.email_message_id,from:process.env.SMTP_FROM?.trim() || user, to:interview.candidate_email,subject,text,html});
     return {messageId:result.messageId,aiAssisted:!!aiCopy};
   }
 }

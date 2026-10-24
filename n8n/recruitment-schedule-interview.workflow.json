@@ -102,7 +102,14 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.payload) }}",
         "options": {
-          "timeout": 40000
+          "timeout": 40000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
         }
       },
       "id": "52289b57-11ba-4ff6-8fd0-5e495d69cd69",
@@ -115,7 +122,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const r = $json || {};\nconst transportError = Boolean(r.error) || Number(r.statusCode || 200) >= 400;\nlet businessOk = true;\n// HTTP 2xx means the backend accepted and completed this operation.\nconst error = transportError ? String(r.error?.message || r.message || 'Backend request failed') : (!businessOk ? String(r.message || 'Backend did not confirm success') : '');\nreturn [{json:{ok:!transportError && businessOk,result:r,error}}];"
+        "jsCode": "const response = $json || {};\nconst r = response.body && typeof response.body === 'object' ? response.body : response;\nconst upstreamStatus = Number(response.statusCode ?? r.statusCode ?? 200);\nconst transportError = Boolean(response.error) || upstreamStatus >= 400;\nconst backendError = String(response.error?.message || r.message || r.error?.message || r.error || 'Backend request failed');\nconst failureCode = Number.isInteger(upstreamStatus) && upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;\nconst scheduleSaved = !transportError && typeof r.id === 'string' && r.id.length > 0;\nconst confirmed = scheduleSaved && r.automation?.ok === true;\nconst partial = scheduleSaved && !confirmed;\nconst status = confirmed ? 'success' : partial ? 'partial' : 'failed';\nconst error = confirmed ? '' : transportError ? backendError : String(r.automation?.message || (partial ? 'Interview saved; invitation delivery is not confirmed. Retry the invitation for this interview, do not recreate the schedule.' : 'Backend did not confirm that the interview was saved'));\nconst httpStatus = confirmed ? 200 : partial ? 207 : failureCode;\nreturn [{json:{ok:confirmed,status,scheduleSaved,httpStatus,result:r,error}}];"
       },
       "id": "dfd55a79-d4f5-4759-a91f-59af449c3645",
       "name": "05 · Evaluate backend result",
@@ -156,7 +163,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: true, workflow: \"09 · Schedule interview and send invitation\", result: $json.result } }}",
+        "responseBody": "={{ { ok: true, status: $json.status, scheduleSaved: $json.scheduleSaved, workflow: \"09 · Schedule interview and send invitation\", result: $json.result } }}",
         "options": {
           "responseCode": 200
         }
@@ -170,13 +177,13 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: false, error: $json.error || \"Backend operation failed\", result: $json.result } }}",
+        "responseBody": "={{ { ok: false, status: $json.status, scheduleSaved: $json.scheduleSaved, error: $json.error || \"Scheduling operation failed\", result: $json.result } }}",
         "options": {
-          "responseCode": 502
+          "responseCode": "={{ $json.httpStatus }}"
         }
       },
       "id": "b0314917-8236-416e-8e92-d07461431757",
-      "name": "07 · Respond backend error",
+      "name": "07 · Respond partial or failed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [1800, 340]
@@ -302,7 +309,7 @@
         ],
         [
           {
-            "node": "07 · Respond backend error",
+            "node": "07 · Respond partial or failed",
             "type": "main",
             "index": 0
           }

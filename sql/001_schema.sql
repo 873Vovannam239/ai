@@ -59,5 +59,18 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS reminder_error text;
 CREATE INDEX IF NOT EXISTS idx_interview_reminder ON interviews(starts_at,reminder_status) WHERE status='scheduled';
 -- Trạng thái 'sending' giúp 2 webhook chạy song song không gửi thư mời hai lần.
 ALTER TABLE interviews DROP CONSTRAINT IF EXISTS interviews_email_status_check;
-ALTER TABLE interviews ADD CONSTRAINT interviews_email_status_check CHECK (email_status IN ('pending','sending','sent','failed'));
+ALTER TABLE interviews ADD CONSTRAINT interviews_email_status_check CHECK (email_status IN ('pending','sending','sent','failed','unknown'));
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS email_attempt_started_at timestamptz;
+
+-- Interview delivery reliability (also provided as 005 for existing installations).
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS email_attempt_id uuid;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS email_delivery_started_at timestamptz;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS email_message_id text;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS reminder_attempt_started_at timestamptz;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS reminder_attempt_id uuid;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS reminder_delivery_started_at timestamptz;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS reminder_message_id text;
+ALTER TABLE interviews DROP CONSTRAINT IF EXISTS interviews_email_status_check;
+ALTER TABLE interviews ADD CONSTRAINT interviews_email_status_check CHECK (email_status IN ('pending','sending','sent','failed','unknown'));
+ALTER TABLE interviews DROP CONSTRAINT IF EXISTS interviews_reminder_status_check;
+ALTER TABLE interviews ADD CONSTRAINT interviews_reminder_status_check CHECK (reminder_status IN ('pending','sending','sent','failed','unknown'));

@@ -102,7 +102,14 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.payload) }}",
         "options": {
-          "timeout": 60000
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
         }
       },
       "id": "2003f88a-e701-4537-a99f-9f3dcc15c009",
@@ -115,7 +122,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const r=$json||{}; const transportError=Boolean(r.error)||Number(r.statusCode||200)>=400; return [{json:{ok:!transportError,result:r,error:transportError?String(r.error?.message||r.message||'Reminder operation failed'):''}}];"
+        "jsCode": "const response = $json || {};\nconst r = response.body && typeof response.body === 'object' ? response.body : response;\nconst upstreamStatus = Number(response.statusCode ?? r.statusCode ?? 200);\nconst transportError = Boolean(response.error) || upstreamStatus >= 400;\nconst backendError = String(response.error?.message || r.message || r.error?.message || r.error || 'Backend request failed');\nconst failureCode = Number.isInteger(upstreamStatus) && upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;\nconst due = Number(r.due);\nconst sent = Number(r.sent);\nconst failed = Number(r.failed);\nconst processing = Number(r.processing ?? 0);\nconst unknown = Number(r.unknown ?? 0);\nconst skipped = Number(r.skipped ?? 0);\nconst validCounts = [due,sent,failed,processing,unknown,skipped].every(n => Number.isInteger(n) && n >= 0) && sent + failed + processing + unknown + skipped <= due;\nconst complete = validCounts && failed === 0 && processing === 0 && unknown === 0 && due === sent + skipped && r.status !== 'partial' && r.status !== 'failed';\nconst ok = !transportError && complete;\nconst status = ok ? 'success' : !transportError && validCounts && (sent > 0 || processing > 0 || skipped > 0 || r.status === 'partial') ? 'partial' : 'failed';\nconst error = ok ? '' : transportError ? backendError : !validCounts ? 'Backend returned invalid reminder counts' : `Reminders incomplete: due=${due}, sent=${sent}, failed=${failed}, processing=${processing}, unknown=${unknown}, skipped=${skipped}`;\nconst httpStatus = ok ? 200 : transportError ? failureCode : status === 'partial' ? 207 : 502;\nreturn [{json:{ok,status,httpStatus,result:r,error}}];"
       },
       "id": "b7a3bf78-72b4-437f-9843-e1890f3eabb8",
       "name": "05 · Evaluate manual result",
@@ -156,7 +163,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: true, workflow: \"05 Follow-up\", result: $json.result } }}",
+        "responseBody": "={{ { ok: true, status: $json.status, workflow: \"05 Follow-up\", result: $json.result } }}",
         "options": {
           "responseCode": 200
         }
@@ -170,9 +177,9 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: false, error: $json.error || \"Reminder operation failed\" } }}",
+        "responseBody": "={{ { ok: false, status: $json.status, error: $json.error || \"Reminder operation incomplete\", result: $json.result } }}",
         "options": {
-          "responseCode": 502
+          "responseCode": "={{ $json.httpStatus }}"
         }
       },
       "id": "f1db0c07-bc75-4446-91bc-acbd1b735284",
@@ -284,7 +291,14 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.payload) }}",
         "options": {
-          "timeout": 60000
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
         }
       },
       "id": "d0a9fdf0-c54c-4fad-a97d-2ab7412f91b5",
@@ -297,7 +311,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const r=$json||{}; const transportError=Boolean(r.error)||Number(r.statusCode||200)>=400; return [{json:{ok:!transportError,result:r,error:transportError?String(r.error?.message||r.message||'Reminder operation failed'):''}}];"
+        "jsCode": "const response = $json || {};\nconst r = response.body && typeof response.body === 'object' ? response.body : response;\nconst upstreamStatus = Number(response.statusCode ?? r.statusCode ?? 200);\nconst transportError = Boolean(response.error) || upstreamStatus >= 400;\nconst backendError = String(response.error?.message || r.message || r.error?.message || r.error || 'Backend request failed');\nconst failureCode = Number.isInteger(upstreamStatus) && upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;\nconst due = Number(r.due);\nconst sent = Number(r.sent);\nconst failed = Number(r.failed);\nconst processing = Number(r.processing ?? 0);\nconst unknown = Number(r.unknown ?? 0);\nconst skipped = Number(r.skipped ?? 0);\nconst validCounts = [due,sent,failed,processing,unknown,skipped].every(n => Number.isInteger(n) && n >= 0) && sent + failed + processing + unknown + skipped <= due;\nconst complete = validCounts && failed === 0 && processing === 0 && unknown === 0 && due === sent + skipped && r.status !== 'partial' && r.status !== 'failed';\nconst ok = !transportError && complete;\nconst status = ok ? 'success' : !transportError && validCounts && (sent > 0 || processing > 0 || skipped > 0 || r.status === 'partial') ? 'partial' : 'failed';\nconst error = ok ? '' : transportError ? backendError : !validCounts ? 'Backend returned invalid reminder counts' : `Reminders incomplete: due=${due}, sent=${sent}, failed=${failed}, processing=${processing}, unknown=${unknown}, skipped=${skipped}`;\nconst httpStatus = ok ? 200 : transportError ? failureCode : status === 'partial' ? 207 : 502;\nreturn [{json:{ok,status,httpStatus,result:r,error}}];"
       },
       "id": "62780a71-60d2-4ea8-adf2-0611a91429a9",
       "name": "Evaluate scheduled reminder result",
@@ -338,7 +352,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "return [{json:{ok:true,result:$json.result}}];"
+        "jsCode": "return [{json:{ok:true,status:$json.status,result:$json.result}}];"
       },
       "id": "f374794f-b837-4289-85c0-5f26cb13bc6f",
       "name": "Finish – scheduled reminders complete",
@@ -349,7 +363,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "return [{json:{ok:false,error:$json.error||'Reminder operation failed'}}];"
+        "jsCode": "throw new Error(String($json.error || 'Scheduled reminders incomplete; inspect the backend audit and reminder states before retrying'));"
       },
       "id": "94cf4d3d-d498-4e9e-a7e7-6f73078fc951",
       "name": "Finish – scheduled reminders failed",

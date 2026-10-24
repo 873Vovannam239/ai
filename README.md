@@ -61,12 +61,27 @@ n8n chỉ truyền ID và dữ liệu cần thiết, backend lấy CV từ DB v�
 
 Xem `docs/PHAN_CONG_4_THANH_VIEN.md` để phân chia 3 workflow/người. Xem `docs/HUONG_DAN_IMPORT_12_WORKFLOWS.md` để import, cấu hình, test và biết payload mẫu. Mỗi JSON có ít nhất 7 node; số node không thay thế việc kiểm thử logic thật.
 
+### Cập nhật phần phỏng vấn: workflow 04, 05, 09
+
+Đặt lịch được kiểm tra trong transaction có khóa theo ứng viên để hai yêu cầu đồng thời không tạo lịch chồng nhau. Thư đã xác nhận gửi sẽ không được gửi thêm khi webhook hoặc nút gửi lại được gọi lặp. Nhắc lịch chỉ áp dụng cho lịch còn hiệu lực, đã gửi thư mời và còn hơn 10 phút đến tối đa 24 giờ trước buổi phỏng vấn.
+
+Nếu đang dùng database/volume cũ, áp dụng migration trước khi chạy API mới:
+
+```bash
+docker compose exec -T db psql -U recruitment -d recruitment -v ON_ERROR_STOP=1 < sql/005_interview_reliability.sql
+docker compose up -d --build api web
+```
+
+Sau đó cập nhật/import lại **ba workflow 04, 05, 09**, tránh Publish hai bản cùng webhook path. Database mới dùng `sql/001_schema.sql` đã có các trường cần thiết.
+
+Tác vụ dừng trước khi bắt đầu SMTP được phục hồi sau 3 phút khi workflow 05 chạy lại. Nếu SMTP đã bắt đầu nhưng chưa biết kết quả, trạng thái là `unknown`, cần đối soát trước khi gửi lại. Xem [hướng dẫn nghiệm thu phỏng vấn](docs/HUONG_DAN_NGHIEM_THU_PHONG_VAN.md) để kiểm thử và xử lý trạng thái này.
+
 ## Xử lý lỗi
 
 - **AI key chưa cấu hình**: kiểm tra `.env`, `GROQ_API_KEY` và chạy `docker compose up -d --build api web`. Đảm bảo đang ở **thư mục project đúng**.
 - **Groq HTTP 401/403**: key bị sai hoặc không có quyền; vào https://console.groq.com/keys.
 - **Groq HTTP 404/400**: kiểm tra tên `GROQ_MODEL`, payload hoặc model được phép sử dụng.
-- **Groq HTTP 429**: tài khoản đạt giới hạn requests/tokens. Hạn mức gói Free/Developer tùy model; xem https://console.groq.com/docs/rate-limits, đợi reset hoặc đổi model phù hợp theo tài khoản. Không có điểm AI giả khi quota hết.
+- **Groq HTTP 429**: tài khoản đạt giới hạn requests/tokens. Backend gửi lần lượt các yêu cầu Groq, chờ theo `Retry-After` (hoặc thời gian trong thông báo lỗi) rồi thử lại, tối đa 3 lần gọi. Phân tích CV có tổng thời gian tối đa 55 giây kể cả chờ lượt, nằm trong timeout 60 giây của workflow 02; tạo nội dung phỏng vấn có tối đa 12 giây. Nếu cần chờ lâu hơn, ứng dụng báo thời gian để thử lại. Một yêu cầu vượt cả hạn mức TPM cần rút gọn CV/JD hoặc tăng hạn mức; chờ reset không giải quyết được. Xem hạn mức thực tế tại https://console.groq.com/settings/limits và tài liệu https://console.groq.com/docs/rate-limits. Không có điểm AI giả khi quota hết.
 - **n8n 404 webhook**: chưa Publish hoặc path trùng với workflow cũ. **n8n 401**: cấu hình secret workflow chưa đúng.
 - **Không gửi Gmail**: kiểm tra SMTP credentials, đăng nhập app password và gửi thử cho chính bạn.
 - **Không nhận báo cáo/thông báo nội bộ**: đặt `RECRUITMENT_NOTIFY_EMAIL` trong `.env` (hoặc để trống để dùng `SMTP_USER`) và rebuild API bằng `docker compose up -d --build api`.

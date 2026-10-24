@@ -1,15 +1,18 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, HttpException, Logger } from '@nestjs/common';
 import { DbService } from './db';
 import { GroqService } from './groq';
 import { MailService } from './mail';
-import * as crypto from 'node:crypto';
+import { InterviewDelivery } from './interview-delivery';
 const clean = (v:unknown,max=1000) => String(v ?? '').trim().slice(0,max);
 const uuid = (v:string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 @Injectable()
 export class AppService {
   private readonly logger = new Logger(AppService.name);
   private readonly processing = new Set<string>();
-  constructor(private readonly db:DbService,private readonly groq:GroqService,private readonly mail:MailService) {}
+  private readonly interviewDelivery: InterviewDelivery;
+  constructor(private readonly db:DbService,private readonly groq:GroqService,private readonly mail:MailService) {
+    this.interviewDelivery = new InterviewDelivery(db, mail);
+  }
   async health() { await this.db.rows('SELECT 1');return {ok:true,db:'connected',aiConfigured:!!process.env.GROQ_API_KEY?.trim(),smtpConfigured:!!process.env.SMTP_USER?.trim()&&!!process.env.SMTP_PASS?.trim(),n8nConfigured:!!process.env.N8N_WEBHOOK_URL?.trim(),proEnabled:process.env.AUTOMATION_PRO_ENABLED==='true'}; }
   async dashboard() {
     const [stats]=await this.db.rows(`SELECT (SELECT count(*) FROM jobs WHERE status='open')::int AS open_jobs,(SELECT count(*) FROM candidates)::int AS candidates,(SELECT count(*) FROM candidates WHERE ai_status='ready')::int AS analyzed,(SELECT count(*) FROM interviews WHERE status='scheduled')::int AS interviews,(SELECT count(*) FROM interviews WHERE email_status='sent')::int AS emails_sent`);
@@ -78,11 +81,16 @@ export class AppService {
   async schedule(data:any) {
     if(process.env.AUTOMATION_PRO_ENABLED==='true') {
       const dispatched=await this.dispatch('interview-schedule',data);
+      if(dispatched.httpStatus===400 || dispatched.httpStatus===409) {
+        throw new HttpException(dispatched.message,dispatched.httpStatus);
+      }
       const candidateId=clean(data?.candidateId,60),startsAt=clean(data?.startsAt,100);
       const existing=uuid(candidateId)&&Number.isFinite(Date.parse(startsAt))
         ? await this.db.one(`SELECT i.*,c.name AS candidate_name,c.email AS candidate_email,j.title AS job_title
             FROM interviews i JOIN candidates c ON c.id=i.candidate_id JOIN jobs j ON j.id=c.job_id
-            WHERE i.candidate_id=$1 AND i.starts_at=$2::timestamptz ORDER BY i.created_at DESC LIMIT 1`,[candidateId,new Date(startsAt)])
+            WHERE i.candidate_id=$1 AND i.starts_at=$2::timestamptz AND i.status='scheduled'
+              AND i.duration_minutes=$3 AND i.mode=$4 AND i.meeting_link=$5 AND i.notes=$6
+            ORDER BY i.created_at DESC LIMIT 1`,[candidateId,new Date(startsAt),Number(data?.durationMinutes??30),data?.mode==='onsite'?'onsite':'online',clean(data?.meetingLink,2000),clean(data?.notes,2000)])
         : undefined;
       if(existing) return {...existing,automation:{ok:existing.email_status==='sent',emailStatus:existing.email_status,message:existing.email_status==='sent'?'Workflow n8n đã tạo lịch và Gmail xác nhận gửi thư.':(existing.email_error||'Lịch đã tạo; kiểm tra trạng thái email trong ứng dụng/n8n.'),aiInterviewGuide:dispatched.result?.aiInterviewGuide||[]}};
       if(dispatched.ok) {
@@ -96,32 +104,49 @@ export class AppService {
   async scheduleByWorkflow(data:any) { return this.createSchedule(data); }
   private async createSchedule(data:any) {
     const candidateId=clean(data?.candidateId,60),startsAt=clean(data?.startsAt,100),mode=data?.mode==='onsite'?'onsite':'online';
-    const minutes=Number(data?.durationMinutes||30);
+    const minutes=Number(data?.durationMinutes??30);
     if(!uuid(candidateId)||!Number.isFinite(Date.parse(startsAt))||new Date(startsAt).getTime()<Date.now()+60000)throw new BadRequestException('Chọn ứng viên và thời gian phỏng vấn trong tương lai.');
     if(!Number.isInteger(minutes)||minutes<15||minutes>180)throw new BadRequestException('Thời lượng phải từ 15–180 phút.');
-    const c=await this.db.one(`SELECT c.*,j.title AS job_title,j.description AS job_description,j.requirements AS job_requirements
-      FROM candidates c JOIN jobs j ON j.id=c.job_id WHERE c.id=$1`,[candidateId]);
-    if(!c||c.ai_status!=='ready')throw new BadRequestException('Chỉ đặt lịch cho ứng viên đã phân tích thành công.');
     const link=clean(data?.meetingLink,2000),notes=clean(data?.notes,2000);
     if(mode==='online' && link && !/^https:\/\//i.test(link))throw new BadRequestException('Đường dẫn phỏng vấn trực tuyến phải bắt đầu bằng https://');
-    const conflict=await this.db.one(`SELECT id FROM interviews WHERE candidate_id=$1 AND status='scheduled'
-      AND tstzrange(starts_at,starts_at + duration_minutes * interval '1 minute','[)') &&
-          tstzrange($2::timestamptz,$2::timestamptz + $3 * interval '1 minute','[)') LIMIT 1`,[candidateId,new Date(startsAt),minutes]);
-    if(conflict)throw new ConflictException('Ứng viên đã có lịch phỏng vấn trùng thời gian. Hãy chọn khung giờ khác.');
-    const interview=await this.db.one('INSERT INTO interviews(candidate_id,starts_at,duration_minutes,mode,meeting_link,notes) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[candidateId,new Date(startsAt),minutes,mode,link,notes]);
-    await this.db.event('interview',`Đã đặt lịch phỏng vấn cho ${c.name}`,interview!.id);
+    const client=await this.db.pool.connect();
+    let c:any, interview:any;
+    try {
+      await client.query('BEGIN');
+      // All scheduling paths lock the same candidate row until the overlap check and insert commit.
+      const candidate=await client.query(`SELECT c.*,j.title AS job_title,j.description AS job_description,j.requirements AS job_requirements
+        FROM candidates c JOIN jobs j ON j.id=c.job_id WHERE c.id=$1 FOR UPDATE OF c`,[candidateId]);
+      c=candidate.rows[0];
+      if(!c||c.ai_status!=='ready')throw new BadRequestException('Chỉ đặt lịch cho ứng viên đã phân tích thành công.');
+      if(new Date(startsAt).getTime()<Date.now()+60000)throw new BadRequestException('Thời gian phỏng vấn phải ở tương lai.');
+      const conflict=await client.query(`SELECT id FROM interviews WHERE candidate_id=$1 AND status='scheduled'
+        AND tstzrange(starts_at,starts_at + duration_minutes * interval '1 minute','[)') &&
+            tstzrange($2::timestamptz,$2::timestamptz + $3 * interval '1 minute','[)') LIMIT 1`,[candidateId,new Date(startsAt),minutes]);
+      if(conflict.rows.length)throw new ConflictException('Ứng viên đã có lịch phỏng vấn trùng thời gian. Hãy chọn khung giờ khác.');
+      const created=await client.query('INSERT INTO interviews(candidate_id,starts_at,duration_minutes,mode,meeting_link,notes) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[candidateId,new Date(startsAt),minutes,mode,link,notes]);
+      interview=created.rows[0];
+      await client.query('COMMIT');
+    } catch(error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {client.release();}
+    await this.db.event('interview',`Đã đặt lịch phỏng vấn cho ${c.name}`,interview.id)
+      .catch((error:any)=>this.logger.warn(`Không ghi được nhật ký đặt lịch: ${clean(error?.message,200)}`));
     const [automation, aiInterviewGuide]=await Promise.all([
       this.triggerAutomation(interview!.id),
       this.groq.generateInterviewGuide(
         {title:c.job_title,requirements:c.job_requirements},
         {ai_summary:String(c.ai_summary||'').replaceAll(String(c.name||''),'[ứng viên]'),ai_skills:c.ai_skills,ai_gaps:c.ai_gaps}
       ).catch(async (error:any)=>{
-        await this.db.event('ai',`Không tạo được gợi ý phỏng vấn bằng Groq: ${clean(error?.message||error,180)}`,interview!.id);
+        await this.db.event('ai',`Không tạo được gợi ý phỏng vấn bằng Groq: ${clean(error?.message||error,180)}`,interview!.id)
+          .catch((auditError:any)=>this.logger.warn(clean(auditError?.message,200)));
         return [] as string[];
       })
     ]);
-    if(aiInterviewGuide.length) await this.db.event('ai',`Groq tạo ${aiInterviewGuide.length} câu hỏi gợi ý phỏng vấn theo vị trí và kỹ năng hồ sơ.`,interview!.id);
-    return {...interview,automation,aiInterviewGuide};
+    if(aiInterviewGuide.length) await this.db.event('ai',`Groq tạo ${aiInterviewGuide.length} câu hỏi gợi ý phỏng vấn theo vị trí và kỹ năng hồ sơ.`,interview!.id)
+      .catch((error:any)=>this.logger.warn(clean(error?.message,200)));
+    const latest=await this.db.one('SELECT email_status,email_error,email_sent_at FROM interviews WHERE id=$1',[interview.id]);
+    return {...interview,...latest,automation:{...automation,aiInterviewGuide},aiInterviewGuide};
   }
   async triggerAutomation(interviewId:string) {
     const webhook=process.env.N8N_WEBHOOK_URL;
@@ -138,34 +163,18 @@ export class AppService {
   }
   async retry(id:string) {
     if(!uuid(id))throw new BadRequestException('Mã lịch phỏng vấn không hợp lệ.');
-    const found=await this.db.one('SELECT email_status,status FROM interviews WHERE id=$1',[id]);
+    await this.interviewDelivery.recoverStale('invite',id);
+    const found=await this.db.one('SELECT email_status,email_sent_at,email_error,status,starts_at FROM interviews WHERE id=$1',[id]);
     if(!found)throw new NotFoundException('Không tìm thấy lịch phỏng vấn.');
-    if(found.status==='cancelled')throw new ConflictException('Lịch đã hủy.');
-    if(found.email_status==='sent')throw new ConflictException('Email đã gửi thành công, không gửi trùng.');
+    if(found.email_status==='sent'||found.email_sent_at)return {ok:true,sent:true,alreadySent:true,message:'Email đã gửi thành công; không gửi lại.'};
+    if(found.email_status==='unknown')throw new ConflictException({status:'unknown',unknown:true,message:found.email_error||'Cần đối soát thư đã gửi trước khi thử lại.'});
+    if(found.status==='cancelled'||new Date(found.starts_at).getTime()<=Date.now())throw new ConflictException('Lịch đã hủy hoặc không còn ở tương lai.');
+    if(found.email_status==='sending')return {ok:false,sent:false,processing:true,message:'Email đang được xử lý; chưa gửi yêu cầu khác.'};
     return this.triggerAutomation(id);
   }
   async sendInviteByWorkflow(id:string) {
     if(!uuid(id))throw new BadRequestException('Mã lịch không hợp lệ.');
-    const i=await this.db.one(`SELECT i.*,c.name AS candidate_name,c.email AS candidate_email,j.title AS job_title FROM interviews i JOIN candidates c ON c.id=i.candidate_id JOIN jobs j ON j.id=c.job_id WHERE i.id=$1`,[id]);
-    if(!i)throw new NotFoundException('Không tìm thấy lịch phỏng vấn.');
-    if(i.status==='cancelled')throw new ConflictException('Lịch đã hủy.');
-    if(i.email_status==='sent')return {sent:true,alreadySent:true};
-    const claimed=await this.db.one(`UPDATE interviews SET email_status='sending',email_attempt_started_at=now() WHERE id=$1
-      AND (email_status IN ('pending','failed') OR (email_status='sending' AND email_attempt_started_at<now()-interval '3 minutes')) RETURNING id`,[id]);
-    if(!claimed) return {sent:false,processing:true,message:'Email đang được xử lý, không gửi trùng.'};
-    try {
-      const delivery=await this.mail.sendInvite(i);
-      await this.db.rows("UPDATE interviews SET email_status='sent',email_error=NULL,email_sent_at=now() WHERE id=$1",[id]);
-      await this.db.event('email',`n8n → Gmail đã gửi thư mời phỏng vấn tới ${i.candidate_email}${delivery.aiAssisted?' (Groq hỗ trợ soạn nội dung)':' (dùng nội dung chuẩn)'}`,id);
-      await this.record('interview-invite',id,'success',`SMTP Gmail gửi thư mời; Groq ${delivery.aiAssisted?'đã soạn nội dung':'không khả dụng, dùng nội dung chuẩn'}`);
-      return {sent:true,messageId:delivery.messageId,aiAssisted:delivery.aiAssisted};
-    }catch(e:any){
-      const msg=clean(e?.response?.message||e?.message||'SMTP lỗi',300);
-      await this.db.rows("UPDATE interviews SET email_status='failed',email_error=$2 WHERE id=$1",[id,msg]);
-      await this.db.event('email',`Gửi Gmail thất bại: ${msg}`,id);
-      await this.record('interview-invite',id,'failed',msg);
-      throw e;
-    }
+    return this.interviewDelivery.sendInvite(id);
   }
 
 private async record(workflow:string, refId:string, status:'received'|'success'|'failed', detail:string) {
@@ -173,7 +182,7 @@ private async record(workflow:string, refId:string, status:'received'|'success'|
   catch(e:any){this.logger.warn(`automation_runs chưa migrate: ${e.message}`);}
 }
 async workflowRuns(){return this.db.rows('SELECT * FROM automation_runs ORDER BY id DESC LIMIT 80');}
-private async dispatch(workflow:string, body:any):Promise<{ok:boolean;message:string;result?:any}> {
+private async dispatch(workflow:string, body:any):Promise<{ok:boolean;message:string;result?:any;httpStatus?:number}> {
   const paths:Record<string,string>={
     'cv-intake':'recruitment-cv-intake','ai-screening':'recruitment-ai-screening',
     'candidate-ranking':'recruitment-ranking','interview-invite':'recruitment-invite',
@@ -198,9 +207,13 @@ private async dispatch(workflow:string, body:any):Promise<{ok:boolean;message:st
         workflow==='candidate-ranking'?30000:8000
       )
     });
-    if(!res.ok) throw new Error(`n8n HTTP ${res.status}: ${(await res.text()).slice(0,160)}`);
     const responseBody=await res.json().catch(()=>({}));
     const result=responseBody?.result;
+    if(!res.ok || responseBody?.ok===false) {
+      const detail=clean(responseBody?.error||responseBody?.message||`n8n HTTP ${res.status}`,250);
+      await this.record(workflow,id,'failed',detail);
+      return {ok:false,message:detail,result,httpStatus:res.status};
+    }
     await this.record(workflow,id,'received','n8n đã nhận sự kiện, xem Executions để xác nhận kết quả.');
     return {ok:true,message:'Đã chuyển yêu cầu đến n8n. Kiểm tra Executions để xem kết quả.',result};
   }catch(e:any){
@@ -333,32 +346,7 @@ async rerankByAdmin(jobId:string){
 }
 async followupByAdmin(){return this.dispatch('recruitment-followup',{manual:true});}
 async processReminders(){
-  // Gửi trước 24 giờ, chỉ các email mời đã gửi và lịch chưa hết hạn.
-  const due=await this.db.rows(`SELECT i.id FROM interviews i WHERE i.status='scheduled' AND i.email_status='sent'
-    AND i.starts_at>now()+interval '10 minutes' AND i.starts_at<=now()+interval '24 hours'
-    AND i.reminder_status IN ('pending','failed') AND i.reminder_sent_at IS NULL ORDER BY i.starts_at LIMIT 20`);
-  let sent=0,failed=0,aiAssisted=0;
-  for(const item of due){
-    const claimed=await this.db.one(`UPDATE interviews SET reminder_status='sending',reminder_error=NULL WHERE id=$1
-      AND reminder_status IN ('pending','failed') AND reminder_sent_at IS NULL RETURNING id`,[item.id]);
-    if(!claimed)continue;
-    const interview=await this.db.one(`SELECT i.*,c.name AS candidate_name,c.email AS candidate_email,j.title AS job_title
-      FROM interviews i JOIN candidates c ON c.id=i.candidate_id JOIN jobs j ON j.id=c.job_id WHERE i.id=$1`,[item.id]);
-    try{
-      const delivery=await this.mail.sendReminder(interview);
-      await this.db.rows("UPDATE interviews SET reminder_status='sent',reminder_sent_at=now(),reminder_error=NULL WHERE id=$1",[item.id]);
-      await this.db.event('email',`n8n đã gửi thư nhắc lịch cho ${interview.candidate_name}${delivery.aiAssisted?' (Groq hỗ trợ soạn nội dung)':' (dùng nội dung chuẩn)'}`,item.id);
-      if(delivery.aiAssisted)aiAssisted++;
-      sent++;
-    }catch(e:any){
-      const msg=clean(e?.message||'SMTP lỗi',250);
-      await this.db.rows("UPDATE interviews SET reminder_status='failed',reminder_error=$2 WHERE id=$1",[item.id,msg]);
-      await this.db.event('email',`Không gửi được email nhắc lịch: ${msg}`,item.id);
-      failed++;
-    }
-  }
-  await this.record('recruitment-followup','scheduled','success',`Đã nhắc ${sent}, lỗi ${failed}, Groq hỗ trợ ${aiAssisted}, hồ sơ đến hạn ${due.length}`);
-  return {due:due.length,sent,failed,aiAssisted,window:'10 phút đến 24 giờ trước phỏng vấn'};
+  return this.interviewDelivery.processReminders();
 }
 
   async events(){return this.db.rows('SELECT * FROM events ORDER BY created_at DESC LIMIT 100');}

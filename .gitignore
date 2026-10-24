@@ -3,5 +3,6 @@
 **/.next/
 **/dist/
 **/*.log
+**/*.tsbuildinfo
 .DS_Store
 .backup_12_workflows_*/

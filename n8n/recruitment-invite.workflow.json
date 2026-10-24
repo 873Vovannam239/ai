@@ -102,7 +102,14 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.payload) }}",
         "options": {
-          "timeout": 35000
+          "timeout": 35000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
         }
       },
       "id": "bdf837d0-3f67-4ecd-903b-61c5a3d1e57b",
@@ -115,7 +122,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const r = $json || {};\nconst transportError = Boolean(r.error) || Number(r.statusCode || 200) >= 400;\nlet businessOk = true;\nbusinessOk = r.sent === true || r.alreadySent === true;\nconst error = transportError ? String(r.error?.message || r.message || 'Backend request failed') : (!businessOk ? String(r.message || 'Backend did not confirm success') : '');\nreturn [{json:{ok:!transportError && businessOk,result:r,error}}];"
+        "jsCode": "const response = $json || {};\nconst r = response.body && typeof response.body === 'object' ? response.body : response;\nconst upstreamStatus = Number(response.statusCode ?? r.statusCode ?? 200);\nconst transportError = Boolean(response.error) || upstreamStatus >= 400;\nconst backendError = String(response.error?.message || r.message || r.error?.message || r.error || 'Backend request failed');\nconst failureCode = Number.isInteger(upstreamStatus) && upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;\nconst confirmed = !transportError && r.sent === true;\nconst unknown = !confirmed && (r.unknown === true || r.status === 'unknown');\nconst processing = !transportError && !confirmed && r.processing === true;\nconst status = confirmed ? 'success' : unknown ? 'unknown' : processing ? 'processing' : 'failed';\nconst error = confirmed ? '' : transportError ? backendError : String(r.message || (unknown ? 'Email delivery is unknown; reconcile before retrying' : processing ? 'Invitation is still processing; delivery is not confirmed' : 'Backend did not confirm email delivery'));\nconst httpStatus = confirmed ? 200 : unknown ? 409 : processing ? 202 : failureCode;\nreturn [{json:{ok:confirmed,status,httpStatus,result:r,error}}];"
       },
       "id": "5ec2922f-9d97-463f-80c4-968f21d17812",
       "name": "05 · Evaluate backend result",
@@ -156,7 +163,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: true, workflow: \"04 · Interview Invitation – Gmail\", result: $json.result } }}",
+        "responseBody": "={{ { ok: true, status: $json.status, workflow: \"04 · Interview Invitation – Gmail\", result: $json.result } }}",
         "options": {
           "responseCode": 200
         }
@@ -170,13 +177,13 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: false, error: $json.error || \"Backend operation failed\", result: $json.result } }}",
+        "responseBody": "={{ { ok: false, status: $json.status, error: $json.error || \"Invitation delivery is not confirmed\", result: $json.result } }}",
         "options": {
-          "responseCode": 502
+          "responseCode": "={{ $json.httpStatus }}"
         }
       },
       "id": "2d4281af-191c-452e-8dd5-2c907cefe0d0",
-      "name": "07 · Respond backend error",
+      "name": "07 · Respond pending or failed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [1800, 340]
@@ -302,7 +309,7 @@
         ],
         [
           {
-            "node": "07 · Respond backend error",
+            "node": "07 · Respond pending or failed",
             "type": "main",
             "index": 0
           }
