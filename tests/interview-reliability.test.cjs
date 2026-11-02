@@ -66,7 +66,7 @@ if (!databaseUrl) {
     [job.id, `test-${randomBytes(4).toString('hex')}@example.invalid`, ready ? 'ready' : 'pending']);
   }
 
-  async function interview({ candidateId, minutesUntil = 120, emailStatus = 'sent',
+  async function interview({ candidateId, minutesUntil = 9, emailStatus = 'sent',
     reminderStatus = 'pending', status = 'scheduled', alreadyReminded = false } = {}) {
     const c = candidateId ? { id: candidateId } : await candidate();
     return db.one(`INSERT INTO interviews(candidate_id,starts_at,duration_minutes,status,email_status,
@@ -381,11 +381,11 @@ if (!databaseUrl) {
     assert.equal(mail.invites.length, 0);
   });
 
-  test('reminders require an active interview, sent invitation, and the 10 minute to 24 hour window', async () => {
+  test('reminders require an active interview, sent invitation, and the 10 minute reminder window', async () => {
     const eligible = await interview();
     for (const settings of [
       { status: 'cancelled' }, { emailStatus: 'pending' }, { emailStatus: 'failed' },
-      { minutesUntil: -5 }, { minutesUntil: 10 }, { minutesUntil: 24 * 60 + 1 },
+      { minutesUntil: -5 }, { minutesUntil: 11 }, { minutesUntil: 120 },
       { reminderStatus: 'sent', alreadyReminded: true }, { alreadyReminded: true },
     ]) await interview(settings);
     const result = await service.processReminders();
@@ -398,8 +398,8 @@ if (!databaseUrl) {
     assert.equal(mail.reminders.length, 1);
   });
 
-  test('the upper reminder boundary includes an interview 24 hours away', async () => {
-    const i = await interview({ minutesUntil: 24 * 60 });
+  test('the upper reminder boundary includes an interview 10 minutes away', async () => {
+    const i = await interview({ minutesUntil: 10 });
     assert.equal((await service.processReminders()).sent, 1);
     assert.deepEqual(mail.reminders, [i.id]);
   });
