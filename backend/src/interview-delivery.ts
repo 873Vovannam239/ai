@@ -17,7 +17,7 @@ type Outcome = {
 const LEASE_MINUTES = 3;
 const eligibility = (kind: MailKind) => kind === 'invite'
   ? "status='scheduled' AND starts_at>now() AND email_sent_at IS NULL"
-  : "status='scheduled' AND email_status='sent' AND reminder_sent_at IS NULL AND starts_at>now()+interval '10 minutes' AND starts_at<=now()+interval '24 hours'";
+  : "status='scheduled' AND email_status='sent' AND reminder_sent_at IS NULL AND starts_at>now() AND starts_at<=now()+interval '10 minutes'";
 const prefix = (kind: MailKind) => kind === 'invite' ? 'email' : 'reminder';
 const message = (error: any) => String(error?.message || error || 'Gửi thư thất bại').slice(0, 350);
 
@@ -160,6 +160,6 @@ export class InterviewDelivery {
     const status = failed + unknown > 0 ? (sent > 0 ? 'partial' : 'failed') : processing > 0 ? 'partial' : 'success';
     await this.audit('recruitment-followup', 'scheduled', status === 'success',
       `Nhắc lịch: đã gửi ${sent}, lỗi ${failed}, đang xử lý ${processing}, cần đối soát ${unknown}, bỏ qua ${skipped}, phục hồi ${recovered}.`);
-    return {due: due.length, sent, failed, processing, unknown, skipped, recovered, aiAssisted, status, window: '10 phút đến 24 giờ trước phỏng vấn'};
+    return {due: due.length, sent, failed, processing, unknown, skipped, recovered, aiAssisted, status, window: 'Trong 10 phút trước phỏng vấn'};
   }
 }

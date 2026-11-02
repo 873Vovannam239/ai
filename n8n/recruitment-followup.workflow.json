@@ -221,14 +221,14 @@
         "rule": {
           "interval": [
             {
-              "field": "hours",
-              "hoursInterval": 1
+              "field": "minutes",
+              "minutesInterval": 1
             }
           ]
         }
       },
       "id": "70f1ebb1-20b5-459d-b1cb-ace1c1e5dc35",
-      "name": "Schedule – every hour",
+      "name": "Schedule – every minute",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [240, 650]
@@ -471,7 +471,7 @@
         ]
       ]
     },
-    "Schedule – every hour": {
+    "Schedule – every minute": {
       "main": [
         [
           {
