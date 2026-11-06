@@ -66,7 +66,7 @@ if (!databaseUrl) {
     [job.id, `test-${randomBytes(4).toString('hex')}@example.invalid`, ready ? 'ready' : 'pending']);
   }
 
-  async function interview({ candidateId, minutesUntil = 9, emailStatus = 'sent',
+  async function interview({ candidateId, minutesUntil = 120, emailStatus = 'sent',
     reminderStatus = 'pending', status = 'scheduled', alreadyReminded = false } = {}) {
     const c = candidateId ? { id: candidateId } : await candidate();
     return db.one(`INSERT INTO interviews(candidate_id,starts_at,duration_minutes,status,email_status,
@@ -381,11 +381,12 @@ if (!databaseUrl) {
     assert.equal(mail.invites.length, 0);
   });
 
-  test('reminders require an active interview, sent invitation, and the 10 minute reminder window', async () => {
+  test('reminders require an active interview, sent invitation, and the 10 minute to 2 hour window', async () => {
     const eligible = await interview();
     for (const settings of [
       { status: 'cancelled' }, { emailStatus: 'pending' }, { emailStatus: 'failed' },
-      { minutesUntil: -5 }, { minutesUntil: 11 }, { minutesUntil: 120 },
+      { minutesUntil: -5 }, { minutesUntil: 10 }, { minutesUntil: 121 },
+      { minutesUntil: 180 }, { minutesUntil: 24 * 60 },
       { reminderStatus: 'sent', alreadyReminded: true }, { alreadyReminded: true },
     ]) await interview(settings);
     const result = await service.processReminders();
@@ -398,9 +399,15 @@ if (!databaseUrl) {
     assert.equal(mail.reminders.length, 1);
   });
 
-  test('the upper reminder boundary includes an interview 10 minutes away', async () => {
-    const i = await interview({ minutesUntil: 10 });
+  test('a reminder waits until the interview is 2 hours away and sends only once', async () => {
+    const i = await interview({ minutesUntil: 121 });
+    assert.equal((await service.processReminders()).due, 0);
+    assert.deepEqual(mail.reminders, []);
+    assert.equal((await db.one('SELECT reminder_status FROM interviews WHERE id=$1', [i.id])).reminder_status, 'pending');
+    await db.rows("UPDATE interviews SET starts_at=now()+interval '2 hours' WHERE id=$1", [i.id]);
     assert.equal((await service.processReminders()).sent, 1);
+    assert.deepEqual(mail.reminders, [i.id]);
+    assert.equal((await service.processReminders()).sent, 0);
     assert.deepEqual(mail.reminders, [i.id]);
   });
 
@@ -420,6 +427,27 @@ if (!databaseUrl) {
     finally { release.resolve(); }
     assert.equal((await sending).sent, 0);
     assert.equal(mail.reminders.length, 0);
+  });
+
+  test('rescheduling beyond 2 hours during reminder preparation prevents SMTP delivery', async () => {
+    const i = await interview();
+    const preparing = deferred(), release = deferred();
+    mail.sendReminder = async (row, beforeSend) => {
+      preparing.resolve();
+      await release.promise;
+      await beforeSend?.();
+      mail.reminders.push(row.id);
+      return { messageId: 'must-not-send', aiAssisted: false };
+    };
+    const sending = service.processReminders();
+    await preparing.promise;
+    try { await db.rows("UPDATE interviews SET starts_at=now()+interval '3 hours' WHERE id=$1", [i.id]); }
+    finally { release.resolve(); }
+    const result = await sending;
+    assert.equal(result.sent, 0);
+    assert.equal(result.skipped, 1);
+    assert.deepEqual(mail.reminders, []);
+    assert.equal((await service.processReminders()).due, 0);
   });
 
   test('interrupted reminder leases recover while a fresh lease remains protected', async () => {

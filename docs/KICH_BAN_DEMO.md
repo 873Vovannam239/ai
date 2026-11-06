@@ -9,7 +9,7 @@
 5. (1 phút) Mở workflow 02: NestJS gọi Groq thật, lưu score/summary/skills/gaps; nếu quota hết thì báo lỗi thật, không sinh điểm giả.
 6. (1 phút) Mở workflow 03 và 08: cập nhật ranking theo JD và xem báo cáo đối sánh từ kết quả AI đã lưu.
 7. (1–2 phút) Chọn ứng viên đã phân tích, đặt lịch trong tương lai. Backend thử gọi workflow 09; workflow này tạo lịch và kích hoạt workflow 04. Kiểm tra trạng thái thư mời, Gmail Sent và n8n Executions. Dùng email demo do nhóm sở hữu.
-8. (1 phút) Mở workflow 05, chỉ ra Schedule hàng giờ và quy tắc chỉ nhắc lịch có thư mời đã gửi, chưa hết hạn, nằm trong cửa sổ 10 phút–24 giờ.
+8. (1 phút) Mở workflow 05, chỉ ra Schedule tự kiểm tra mỗi phút, không cần bấm Run. Hệ thống nhắc trước phỏng vấn 2 tiếng, ở lượt kiểm tra đầu tiên khi còn không quá 2 giờ. Dùng lịch có thư mời đã gửi thành công, chưa nhắc và còn hơn 10 phút đến tối đa 2 giờ; quan sát execution tự động và trạng thái nhắc lịch. Lịch còn hơn 2 giờ sẽ chờ đến mốc nhắc; mỗi lịch chỉ gửi nhắc một lần.
 9. (1 phút) Mở workflow 10 để giải thích thông báo trạng thái AI cho người tuyển dụng; mở workflow 11 để tạo báo cáo tuyển dụng và kiểm tra email nhận báo cáo.
 10. (1 phút) Giới thiệu workflow 12: Error Trigger ghi lỗi vào audit log và gửi email cảnh báo khi phân loại lỗi critical. Chỉ ra lịch sử automation/events trong hệ thống.
 11. (1 phút) Tổng kết: 12 workflow, 3 workflow/người × 4 thành viên, mỗi workflow có ít nhất 7 node; tách biệt điều phối n8n với nghiệp vụ/DB/AI trong NestJS.

@@ -22,14 +22,16 @@ Thành viên phụ trách **09 Đặt lịch**, **04 Gửi thư mời**, **05 Nh
 
 ### Workflow 05 — Nhắc lịch
 
-Cả chạy thủ công và chạy mỗi giờ đều dùng cùng điều kiện. Chỉ xét lịch thỏa **tất cả**:
+Workflow tự kiểm tra mỗi phút khi đã Publish và Docker/n8n đang chạy; không cần mở editor bấm Run. Cả chạy thủ công và chạy tự động đều dùng cùng điều kiện. Chỉ xét lịch thỏa **tất cả**:
 
 1. `status = scheduled`, chưa bị hủy.
 2. `email_status = sent`: thư mời đã được xác nhận gửi thành công.
-3. Giờ phỏng vấn **lớn hơn 10 phút** và **không quá 24 giờ** tính từ thời điểm xét trong database.
+3. Giờ phỏng vấn **lớn hơn 10 phút** và **không quá 2 giờ** tính từ thời điểm xét trong database.
 4. Chưa có `reminder_sent_at`; trạng thái nhắc cho phép xử lý và claim thành công.
 
-Backend kiểm tra lại điều kiện khi nhận claim và trước khi bắt đầu gửi. Việc bấm chạy thủ công không bỏ qua cửa sổ thời gian. Lịch đã qua giờ, còn đúng 10 phút, thư mời chưa gửi hoặc đã nhắc thành công sẽ không được gửi nhắc.
+Hệ thống nhắc trước buổi phỏng vấn 2 tiếng, ở lượt kiểm tra đầu tiên khi lịch còn không quá 2 giờ; với chu kỳ mỗi phút, thường xử lý trong khoảng 1 phút sau mốc này khi hệ thống đang chạy. Lịch được tạo hoặc thư mời được gửi thành công sau mốc 2 giờ sẽ được nhắc ở lượt kiểm tra đủ điều kiện tiếp theo, miễn vẫn còn hơn 10 phút.
+
+Backend kiểm tra lại điều kiện khi nhận claim và trước khi bắt đầu gửi. Việc bấm chạy thủ công không bỏ qua cửa sổ thời gian. Lịch còn hơn 2 giờ, đã qua giờ, còn đúng 10 phút, thư mời chưa gửi hoặc đã nhắc thành công sẽ không được gửi nhắc.
 
 Kết quả chứa `due`, `sent`, `failed`, `processing`, `unknown`, `skipped`, `recovered`, `aiAssisted` và `status`. Đọc cả các bộ đếm; không kết luận thành công chỉ từ HTTP 200 của backend. Workflow không báo thành công khi có thư lỗi, đang xử lý hoặc chưa rõ kết quả. Một lượt được tính hoàn tất khi `due = sent + skipped`: `sent` chỉ tính thư do worker này gửi thật; `skipped` là công việc không còn cần gửi (worker khác đã gửi hoặc lịch không còn đủ điều kiện). Không cộng `skipped` vào số thư đã gửi. Nhánh lịch tự động sẽ ném lỗi khi chưa hoàn tất, để n8n đánh dấu Execution failed và gọi Error Workflow đã cấu hình.
 
@@ -92,7 +94,7 @@ Không trả về bản ghi thì dừng và đọc lại trạng thái; không b
 
 ## 4. Các ca nghiệm thu cần có
 
-Chọn giờ test tương đối với thời điểm hiện tại, nhập múi giờ rõ ràng (`+07:00` hoặc `Z`). Chụp execution ID, trạng thái database và số thư trong hộp thư demo cho từng ca. Các ca biên đúng 10 phút/24 giờ nên dùng kiểm thử với đồng hồ cố định để không sai do thao tác chậm.
+Chọn giờ test tương đối với thời điểm hiện tại, nhập múi giờ rõ ràng (`+07:00` hoặc `Z`). Chụp execution ID, trạng thái database và số thư trong hộp thư demo cho từng ca. Các ca biên đúng 10 phút/2 giờ nên dùng kiểm thử với đồng hồ cố định để không sai do thao tác chậm.
 
 | Mã | Thao tác | Kết quả bắt buộc |
 |---|---|---|
@@ -106,8 +108,8 @@ Chọn giờ test tương đối với thời điểm hiện tại, nhập múi 
 | 04-03 | Gửi cho lịch hủy hoặc đã qua giờ | Bị từ chối, không gọi SMTP. |
 | 04-04 | Claim hết hạn sau khi bắt đầu SMTP | Trạng thái `unknown`; gọi lại không gửi tiếp trước đối soát. |
 | 05-01 | Lịch sau 2 giờ, thư mời `sent`, chưa nhắc | Gửi một thư nhắc, lưu `reminder_sent_at`; lượt sau không gửi lại. |
-| 05-02 | Lịch còn đúng 10 phút, quá 24 giờ, đã qua giờ, đã hủy hoặc thư mời chưa `sent` | Từng trường hợp đều không gửi nhắc. |
-| 05-03 | Lịch còn đúng 24 giờ với đồng hồ cố định | Được xét gửi nếu các điều kiện khác đúng. |
+| 05-02 | Lịch còn đúng 10 phút, còn hơn 2 giờ, đã qua giờ, đã hủy hoặc thư mời chưa `sent` | Từng trường hợp đều không gửi nhắc. |
+| 05-03 | Lịch còn đúng 2 giờ với đồng hồ cố định | Được xét gửi nếu các điều kiện khác đúng. |
 | 05-04 | Gián đoạn sau claim nhưng trước SMTP; claim hết hạn | Tự thu hồi và xử lý lại khi lịch còn đủ điều kiện; có số `recovered`. |
 | 05-05 | Gián đoạn sau khi bắt đầu SMTP, chưa lưu kết quả | Chuyển `unknown`, không tự gửi thêm thư. |
 | 05-06 | Một thư nhắc thành công và một thư lỗi | Có đủ `sent`/`failed`; kết quả `partial`, không báo thành công toàn bộ. |

@@ -13,7 +13,7 @@ Yêu cầu: **4 thành viên × 3 workflow/người = 12 workflow**; mỗi workf
 | Bạn 2 – AI | 03 · Candidate Ranking by job | **11 node** · Xếp hạng ứng viên theo vị trí tuyển dụng, lưu bảng xếp hạng |
 | Bạn 2 – AI | 08 · CV and job requirement match report | **11 node** · Đọc kết quả AI đã lưu và tạo báo cáo đối sánh CV/JD |
 | Bạn 3 – Interview | 04 · Interview Invitation – Gmail | **11 node** · Gửi thư mời Gmail, chống gửi trùng, kiểm tra kết quả SMTP |
-| Bạn 3 – Interview | 05 · Follow-up – scheduled interview reminders | **19 node** · Trigger thủ công và Schedule hàng giờ; nhắc lịch đủ điều kiện |
+| Bạn 3 – Interview | 05 · Follow-up – scheduled interview reminders | **19 node** · Tự kiểm tra mỗi phút và nhắc lịch đủ điều kiện; có trigger thủ công để kiểm thử |
 | Bạn 3 – Interview | 09 · Schedule interview and send invitation | **11 node** · Kiểm tra payload/lịch trùng, tạo lịch và kích hoạt workflow gửi thư mời |
 | Bạn 4 – Ops/QA | 10 · Notify recruiter of AI status | **11 node** · Gửi email nội bộ sau khi có kết quả phân tích AI |
 | Bạn 4 – Ops/QA | 11 · Daily recruitment report | **19 node** · Tạo báo cáo định kỳ, Schedule mỗi ngày lúc 08:00 và hỗ trợ gọi thủ công |

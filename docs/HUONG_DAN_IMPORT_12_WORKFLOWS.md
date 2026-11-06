@@ -37,7 +37,7 @@ Các workflow webhook kiểm tra header `x-automation-token`. Backend HTTP Reque
 
 Khi upload CV qua ứng dụng, backend chặn email trùng cùng vị trí trước khi tạo hồ sơ. Nếu `AUTOMATION_PRO_ENABLED=true`, backend lần lượt gọi workflow 06 kiểm tra trùng (audit), 07 chuẩn hóa CV, 01 xác minh CV và 02 sàng lọc AI. Sau khi AI thành công, backend gọi 03 cập nhật ranking, 08 lấy báo cáo đối sánh và 10 gửi thông báo nội bộ. Khi đặt lịch, backend gọi workflow 09; nếu workflow chưa Publish, backend có đường dự phòng và vẫn thử gọi workflow 04 để gửi thư mời.
 
-Workflow 05 chạy lịch nhắc hàng giờ. Backend chỉ gửi nhắc cho lịch còn hiệu lực, thư mời đã gửi và thời điểm phỏng vấn nằm trong cửa sổ 10 phút–24 giờ.
+Workflow 05 tự kiểm tra lịch nhắc mỗi phút khi đã Publish và Docker/n8n đang chạy; không cần mở n8n bấm Run. Backend gửi nhắc trước phỏng vấn 2 tiếng, ở lượt kiểm tra đầu tiên khi lịch còn không quá 2 giờ (thường trong khoảng 1 phút sau mốc này nếu hệ thống đang chạy). Lịch phải còn hiệu lực, thư mời đã gửi thành công, chưa gửi nhắc và còn hơn 10 phút. Nếu đặt lịch hoặc hoàn tất thư mời khi đã vào cửa sổ này, thư nhắc được xử lý ở lượt kiểm tra đủ điều kiện tiếp theo. Các lần kiểm tra tiếp theo không gửi lại thư nhắc đã thành công.
 
 ## 5. Payload mẫu để test
 

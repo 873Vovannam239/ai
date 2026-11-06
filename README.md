@@ -46,7 +46,7 @@ Bản full source đã chuyển hoàn toàn sang Groq. Không chứa `.env` ho�
 | 02 AI Screening | `/webhook/recruitment-ai-screening` | Gọi Groq → lưu score/summary/skills/gaps |
 | 03 Candidate Ranking | `/webhook/recruitment-ranking` | Thứ hạng riêng từng vị trí trong PostgreSQL |
 | 04 Interview Invitation | `/webhook/recruitment-invite` | Gửi thư mời qua SMTP nếu quản trị đặt lịch |
-| 05 Follow-up | Schedule hàng giờ hoặc `/webhook/recruitment-followup` | Gửi nhắc lịch đã được gửi thư mời trước đó |
+| 05 Follow-up | Schedule mỗi phút hoặc `/webhook/recruitment-followup` | Tự kiểm tra và gửi nhắc cho lịch đủ điều kiện, đã gửi thư mời trước đó |
 | 06 Duplicate CV Check | `/webhook/recruitment-duplicate-check` | Kiểm tra hồ sơ trùng email trong cùng vị trí; backend cũng chặn tải CV trùng |
 | 07 CV Normalization | `/webhook/recruitment-cv-normalize` | Chuẩn hóa xuống dòng/khoảng trắng của CV đã lưu |
 | 08 Job Match Report | `/webhook/recruitment-job-match` | Lấy báo cáo đối sánh CV/JD từ kết quả Groq đã lưu |
@@ -57,13 +57,15 @@ Bản full source đã chuyển hoàn toàn sang Groq. Không chứa `.env` ho�
 
 n8n chỉ truyền ID và dữ liệu cần thiết, backend lấy CV từ DB và gửi nội dung văn bản đã che email/số điện thoại tới Groq. n8n không gọi Groq trực tiếp. Nếu workflow 02 chưa Publish, Backend có chế độ gọi Groq trực tiếp (không được nói rằng n8n đã chạy thành công).
 
+Workflow 05 tự kiểm tra mỗi phút khi đã Publish và Docker/n8n đang chạy; không cần mở editor bấm Run. Hệ thống gửi một thư nhắc trước buổi phỏng vấn 2 tiếng, ở lượt kiểm tra đầu tiên khi lịch còn không quá 2 giờ (thường trong khoảng 1 phút sau mốc này nếu hệ thống đang chạy). Thư mời phải đã gửi thành công và lịch còn hơn 10 phút. Nếu đặt lịch hoặc gửi thư mời khi đã vào cửa sổ này, hệ thống nhắc ở lượt kiểm tra đủ điều kiện tiếp theo; mỗi lịch chỉ nhắc một lần.
+
 ### Chia việc 4 thành viên
 
 Xem `docs/PHAN_CONG_4_THANH_VIEN.md` để phân chia 3 workflow/người. Xem `docs/HUONG_DAN_IMPORT_12_WORKFLOWS.md` để import, cấu hình, test và biết payload mẫu. Mỗi JSON có ít nhất 7 node; số node không thay thế việc kiểm thử logic thật.
 
 ### Cập nhật phần phỏng vấn: workflow 04, 05, 09
 
-Đặt lịch được kiểm tra trong transaction có khóa theo ứng viên để hai yêu cầu đồng thời không tạo lịch chồng nhau. Thư đã xác nhận gửi sẽ không được gửi thêm khi webhook hoặc nút gửi lại được gọi lặp. Nhắc lịch chỉ áp dụng cho lịch còn hiệu lực, đã gửi thư mời và còn hơn 10 phút đến tối đa 24 giờ trước buổi phỏng vấn.
+Đặt lịch được kiểm tra trong transaction có khóa theo ứng viên để hai yêu cầu đồng thời không tạo lịch chồng nhau. Thư đã xác nhận gửi sẽ không được gửi thêm khi webhook hoặc nút gửi lại được gọi lặp. Nhắc lịch chỉ áp dụng cho lịch còn hiệu lực, đã gửi thư mời và còn hơn 10 phút đến tối đa 2 giờ trước buổi phỏng vấn.
 
 Nếu đang dùng database/volume cũ, áp dụng migration trước khi chạy API mới:
 
