@@ -24,9 +24,17 @@ function SectionHead({eyebrow,title,desc,action}:{eyebrow?:string;title:string;d
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
 export default function Page(){
  const[auth,setAuth]=useState<boolean|null>(null); const[pass,setPass]=useState('');const[loginBusy,setLoginBusy]=useState(false);
- const[tab,setTab]=useState<Tab>('overview');const[jobs,setJobs]=useState<Job[]>([]);const[candidates,setCandidates]=useState<Candidate[]>([]);const[interviews,setInterviews]=useState<Interview[]>([]);const[events,setEvents]=useState<Event[]>([]);const[runs,setRuns]=useState<AutomationRun[]>([]);const[stats,setStats]=useState<Stats>(initialStats);const[health,setHealth]=useState<Health|null>(null);
- const[error,setError]=useState('');const[notice,setNotice]=useState('');const[busy,setBusy]=useState('');const[jobModal,setJobModal]=useState(false);const[uploadModal,setUploadModal]=useState(false);const[interviewModal,setInterviewModal]=useState(false);const[selected,setSelected]=useState<Candidate|null>(null);const[search,setSearch]=useState('');const[jobFilter,setJobFilter]=useState('all');
- const[jobForm,setJobForm]=useState({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});
+ const[tab,setTab]=useState<Tab>('overview');const[jobs,setJobs]=useState<Job[]>([]);const[candidates,setCandidates]=useState<Candidate[]>([]);const[interviews,setInterviews]=useState<Interview[]>([]);const[ivSearch,setIvSearch]=useState('');
+const[ivEmail,setIvEmail]=useState('all');
+const[ivPage,setIvPage]=useState(1);
+const[ivSize,setIvSize]=useState(10);const[events,setEvents]=useState<Event[]>([]);const[runs,setRuns]=useState<AutomationRun[]>([]);
+    const[workflowSearch,setWorkflowSearch]=useState('');
+    const[runSearch,setRunSearch]=useState('');
+    const[runStatus,setRunStatus]=useState('all');
+    const[runPage,setRunPage]=useState(1);
+    const[runPageSize,setRunPageSize]=useState(10);const[stats,setStats]=useState<Stats>(initialStats);const[health,setHealth]=useState<Health|null>(null);
+ const[error,setError]=useState('');const[notice,setNotice]=useState('');const[busy,setBusy]=useState('');const[jobModal,setJobModal]=useState(false);const[uploadModal,setUploadModal]=useState(false);const[interviewModal,setInterviewModal]=useState(false);const[selected,setSelected]=useState<Candidate|null>(null);const[search,setSearch]=useState('');const[jobFilter,setJobFilter]=useState('all');const[aiFilter,setAiFilter]=useState('all');const[candidatePage,setCandidatePage]=useState(1);const[candidatePageSize,setCandidatePageSize]=useState(10);
+ const[jobSearch,setJobSearch]=useState('');const[jobOrder,setJobOrder]=useState('newest');const[jobPage,setJobPage]=useState(1);const[jobPageSize,setJobPageSize]=useState(6);const[jobForm,setJobForm]=useState({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});
  const[uploadForm,setUploadForm]=useState({name:'',email:'',jobId:''});const[cvFile,setCvFile]=useState<File|null>(null);
  const[scheduleForm,setScheduleForm]=useState({candidateId:'',startsAt:'',durationMinutes:'30',mode:'online',meetingLink:'',notes:''});
  useEffect(()=>{fetch('/api/session').then(r=>r.json()).then(d=>setAuth(!!d.authenticated)).catch(()=>setAuth(false));},[]);
@@ -42,26 +50,191 @@ export default function Page(){
  const interviewRate=stats.candidates?Math.round(stats.interviews/stats.candidates*100):0;
  const pendingCount=candidates.filter(c=>c.ai_status==='pending').length;
  const failedCount=candidates.filter(c=>c.ai_status==='error').length;
- const sorted=useMemo(()=>candidates.filter(c=>(jobFilter==='all'||c.job_id===jobFilter)&&[c.name,c.email,c.job_title,c.ai_summary||''].join(' ').toLowerCase().includes(search.toLowerCase())),[candidates,search,jobFilter]);
- async function saveJob(e:FormEvent){e.preventDefault();await task('job',async()=>{await api('/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(jobForm)});setJobModal(false);setJobForm({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});success('Đã tạo tin tuyển dụng và lưu vào PostgreSQL.');});}
+ const sorted=useMemo(()=>candidates.filter(c=>(jobFilter==='all'||c.job_id===jobFilter)&&(aiFilter==='all'||c.ai_status===aiFilter)&&[c.name,c.email,c.job_title,c.ai_summary||''].join(' ').toLowerCase().includes(search.toLowerCase())),[candidates,search,jobFilter,aiFilter]);
+    const candidatePageCount=Math.max(1,Math.ceil(sorted.length/candidatePageSize));
+    const currentCandidatePage=Math.min(candidatePage,candidatePageCount);
+    const candidateStart=(currentCandidatePage-1)*candidatePageSize;
+    const visibleCandidates=sorted.slice(candidateStart,candidateStart+candidatePageSize);
+    useEffect(()=>{setCandidatePage(1)},[search,jobFilter,aiFilter,candidatePageSize]);
+ const filteredJobs=useMemo(()=>{
+      const query=jobSearch.trim().toLocaleLowerCase('vi');
+      return jobs.filter(j=>
+        [j.title,j.department,j.location,j.description]
+          .some(v=>String(v||'').toLocaleLowerCase('vi').includes(query))
+      ).sort((a,b)=>
+        jobOrder==='name'
+          ?a.title.localeCompare(b.title,'vi')
+          :jobOrder==='applicants'
+            ?candidates.filter(c=>c.job_id===b.id).length-
+             candidates.filter(c=>c.job_id===a.id).length
+            :(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0)
+      );
+    },[jobs,candidates,jobSearch,jobOrder]);
+
+    const jobPages=Math.max(1,Math.ceil(filteredJobs.length/jobPageSize));
+    const safeJobPage=Math.min(jobPage,jobPages);
+    const visibleJobs=filteredJobs.slice(
+      (safeJobPage-1)*jobPageSize,
+      safeJobPage*jobPageSize
+    );
+
+    useEffect(()=>{setJobPage(1)},[jobSearch,jobOrder,jobPageSize]);
+
+    async function saveJob(e:FormEvent){e.preventDefault();await task('job',async()=>{await api('/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(jobForm)});setJobModal(false);setJobForm({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});success('Đã tạo tin tuyển dụng và lưu vào PostgreSQL.');});}
  async function uploadCv(e:FormEvent){e.preventDefault();if(!cvFile){setError('Chọn CV PDF hoặc DOCX.');return}await task('upload',async()=>{const data=new FormData();data.append('file',cvFile);data.append('jobId',uploadForm.jobId);data.append('name',uploadForm.name);data.append('email',uploadForm.email);const result:Candidate=await api('/candidates/upload',{method:'POST',body:data});setUploadModal(false);setUploadForm({name:'',email:'',jobId:''});setCvFile(null);setTab('candidates');setSelected(result);success(result.ai_status==='ready'?`Groq đã phân tích CV thật, điểm ${result.score}/100.`:result.ai_status==='pending'?'Đã lưu CV! n8n đang gọi Groq thật; bảng sẽ tự cập nhật khi có kết quả.':'Đã lưu CV, nhưng AI báo lỗi. Mở hồ sơ và bấm phân tích lại.');});}
  async function analyze(id:string){await task('analyze',async()=>{const r:Candidate=await api('/candidates/'+id+'/analyze',{method:'POST'});setSelected(r);success(r.ai_status==='ready'?`Groq vừa phân tích thành công: ${r.score}/100.`:'Groq gặp lỗi. Xem chi tiết trong hồ sơ.');});}
  function openSchedule(c:Candidate){setSelected(c);setScheduleForm({candidateId:c.id,startsAt:'',durationMinutes:'30',mode:'online',meetingLink:'',notes:''});setInterviewModal(true);}
  async function schedule(e:FormEvent){e.preventDefault();await task('schedule',async()=>{if(!scheduleForm.startsAt)throw Error('Chọn ngày giờ phỏng vấn.');const result=await api('/interviews',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...scheduleForm,startsAt:new Date(scheduleForm.startsAt).toISOString(),durationMinutes:Number(scheduleForm.durationMinutes)})});setInterviewModal(false);setTab('interviews');const guide=Array.isArray(result.automation?.aiInterviewGuide)?result.automation.aiInterviewGuide:[];success([result.automation?.message||'Đã tạo lịch phỏng vấn.',guide.length?`Gợi ý câu hỏi từ Groq:\n${guide.map((q:string,i:number)=>`${i+1}. ${q}`).join('\n')}`:''].filter(Boolean).join('\n\n'));});}
  async function rerank(jobId:string){await task('rerank',async()=>{const r=await api('/automation/rerank',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId})});success(r.message||'Đã gọi n8n cập nhật xếp hạng.');});}
- async function sendReminders(){await task('followup',async()=>{const r=await api('/automation/followup',{method:'POST'});success(r.message||'Đã kích hoạt nhắc lịch.');});}
+
+ const ivFiltered=useMemo(()=>interviews.filter(i=>
+  (ivEmail==='all'||i.email_status===ivEmail)&&
+  [i.candidate_name,i.candidate_email,i.job_title]
+   .some(x=>String(x||'').toLowerCase()
+   .includes(ivSearch.trim().toLowerCase()))
+ ).sort((x,y)=>Date.parse(x.starts_at)-Date.parse(y.starts_at)),
+ [interviews,ivEmail,ivSearch]);
+
+ const ivPages=Math.max(1,Math.ceil(ivFiltered.length/ivSize));
+ const ivSafePage=Math.min(ivPage,ivPages);
+ const ivFrom=(ivSafePage-1)*ivSize;
+ const ivVisible=ivFiltered.slice(ivFrom,ivFrom+ivSize);
+ const filteredRuns=useMemo(()=>runs.filter(r=>
+      (runStatus==='all'||r.status===runStatus)&&
+      [r.workflow,r.detail,r.status].join(' ')
+        .toLowerCase().includes(runSearch.trim().toLowerCase())
+    ),[runs,runSearch,runStatus]);
+
+    const runPageCount=Math.max(
+      1,Math.ceil(filteredRuns.length/runPageSize)
+    );
+    const safeRunPage=Math.min(runPage,runPageCount);
+    const visibleRuns=filteredRuns.slice(
+      (safeRunPage-1)*runPageSize,
+      safeRunPage*runPageSize
+    );
+
+    async function sendReminders(){await task('followup',async()=>{const r=await api('/automation/followup',{method:'POST'});success(r.message||'Đã kích hoạt nhắc lịch.');});}
  async function retry(id:string){await task('retry',async()=>{const r=await api('/interviews/'+id+'/retry',{method:'POST'});success(r.message||'Đã kích hoạt lại workflow.');});}
  if(auth===null)return <div className="loading-screen"><LoaderCircle className="spin" size={36}/>Đang kết nối TalentFlow...</div>;
  if(!auth)return <main className="auth-page"><div className="auth-art"><div className="brand large"><span className="brand-mark"><Sparkles size={24}/></span><span>TalentFlow <b>PRO</b></span></div><div className="auth-hero"><span className="hero-label"><Sparkles size={14}/> POWERED BY GROQ</span><h1>Find talent.<br/><em>Faster & smarter.</em></h1><p>Nền tảng tuyển dụng kết hợp AI thật, NestJS, PostgreSQL và tự động hóa n8n.</p><div className="hero-caps"><span><Check size={14}/> Groq AI thật</span><span><Check size={14}/> Tự động n8n</span><span><Check size={14}/> PostgreSQL</span></div></div><div className="art-glow"/></div><div className="auth-panel"><div className="login-card"><div className="login-icon"><LockKeyhole size={25}/></div><span className="eyebrow">TALENTFLOW ADMIN</span><h2>Chào mừng trở lại</h2><p>Đăng nhập để quản lý quy trình tuyển dụng.</p><form onSubmit={login}><Field label="Mật khẩu quản trị"><input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Nhập ADMIN_PASSWORD" required autoFocus/></Field><button className="button primary full" disabled={loginBusy}>{loginBusy?<LoaderCircle className="spin" size={18}/>:<ArrowRight size={18}/>}Đăng nhập hệ thống</button></form>{error&&<div className="alert error"><CircleAlert size={16}/>{error}</div>}<div className="login-footer"><ShieldCheck size={16}/> Bảo vệ hồ sơ ứng viên bằng phiên quản trị.</div></div></div></main>;
  return <div className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><Sparkles size={20}/></span><span>TalentFlow <b>PRO</b></span></div><div className="sidebar-overline">WORKSPACE</div><nav>{tabs.map(t=><button key={t.id} className={'navlink '+(tab===t.id?'active':'')} onClick={()=>{setTab(t.id);setError('')}}><t.icon size={19}/>{t.label}{tab===t.id&&<ChevronRight size={14} className="nav-chevron"/>}</button>)}</nav><div className="side-bottom"><div className="ai-online"><span className={'status-light '+(health?.aiConfigured?'on':'off')}/><div><b>Groq API</b><small>{health?.aiConfigured?'Đã cấu hình AI thật':'Chưa có API key'}</small></div></div><button className="navlink" onClick={logout}><LogOut size={19}/> Đăng xuất</button></div></aside>
  <div className="content-shell"><header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14}/><b>{tabs.find(t=>t.id===tab)?.label}</b></div><div className="top-actions"><Pill tone={health?.aiConfigured?'green':'amber'}><span className="status-light on"/> {health?.aiConfigured?'Groq Connected':'Groq chưa cấu hình'}</Pill><button className="icon-button" title="Tải lại dữ liệu" onClick={()=>task('refresh',async()=>{await load();success('Đã làm mới dữ liệu.')})}><RefreshCw size={18} className={busy==='refresh'?'spin':''}/></button><div className="avatar">AD</div></div></header>
  <main className="main-content">{error&&<div className="alert error top-alert"><CircleAlert size={18}/><span>{error}</span><button onClick={()=>setError('')}><X size={15}/></button></div>}{notice&&<div className="alert success top-alert"><CheckCircle2 size={18}/><span>{notice}</span><button onClick={()=>setNotice('')}><X size={15}/></button></div>}
- {tab==='overview'&&<><SectionHead eyebrow="RECRUITMENT INTELLIGENCE" title="Tổng quan tuyển dụng" desc="Theo dõi hoạt động tuyển dụng và kết quả phân tích thực từ Groq." action={<button className="button primary" onClick={()=>jobs.length?setUploadModal(true):setJobModal(true)}><Plus size={18}/>{jobs.length?'Thêm CV ứng viên':'Tạo vị trí đầu tiên'}</button>}/><div className="stat-grid">{[{label:'Vị trí đang tuyển',value:stats.open_jobs,icon:BriefcaseBusiness,theme:'blue'},{label:'Tổng số ứng viên',value:stats.candidates,icon:Users,theme:'purple'},{label:'CV đã phân tích',value:stats.analyzed,icon:Sparkles,theme:'green'},{label:'Lịch phỏng vấn',value:stats.interviews,icon:CalendarDays,theme:'orange'}].map(s=><div className="stat-card" key={s.label}><div className={'stat-icon '+s.theme}><s.icon size={21}/></div><span>{s.label}</span><strong>{s.value}</strong><small>Dữ liệu trong PostgreSQL</small></div>)}</div><div className="insight-grid"><section className="insight-card"><div className="insight-title"><span><Activity size={17}/> Tiến độ sàng lọc AI</span><b>{screeningRate}%</b></div><div className="progress-track"><span style={{width:`${Math.min(100,screeningRate)}%`}}/></div><p>{stats.analyzed} / {stats.candidates} hồ sơ đã được phân tích</p></section><section className="insight-card"><div className="insight-title"><span><CalendarDays size={17}/> Tỷ lệ lên lịch phỏng vấn</span><b>{interviewRate}%</b></div><div className="progress-track interview"><span style={{width:`${Math.min(100,interviewRate)}%`}}/></div><p>{stats.interviews} lịch phỏng vấn / {stats.candidates} hồ sơ</p></section><section className="insight-card insight-actions"><div className="insight-title"><span><Sparkles size={17}/> Công việc cần chú ý</span></div><div className="attention-list"><span>{pendingCount} CV chờ AI</span><span>{failedCount} CV cần kiểm tra</span></div><button className="text-button" onClick={()=>setTab('candidates')}>Quản lý ứng viên <ArrowRight size={15}/></button></section></div><div className="quick-actions"><span>THAO TÁC NHANH</span><button className="button outline" onClick={()=>setJobModal(true)}><BriefcaseBusiness size={16}/> Tạo vị trí</button><button className="button outline" disabled={!jobs.length} onClick={()=>setUploadModal(true)}><FolderUp size={16}/> Tải CV</button><button className="button outline" onClick={()=>setTab('interviews')}><CalendarDays size={16}/> Xem lịch</button><button className="button outline" onClick={()=>setTab('automation')}><Workflow size={16}/> Theo dõi n8n</button></div><div className="two-cols"><section className="panel"><div className="panel-heading"><div><h2>Ứng viên nổi bật</h2><p>Xếp hạng theo điểm Groq, chỉ mang tính hỗ trợ</p></div><button className="text-button" onClick={()=>setTab('candidates')}>Xem tất cả <ArrowRight size={15}/></button></div>{candidates.filter(c=>c.ai_status==='ready').length===0?<Empty icon={Users} title="Chưa có ứng viên được phân tích" description="Hãy tạo vị trí tuyển dụng, tải CV và để Groq phân tích." onClick={()=>jobs.length?setUploadModal(true):setJobModal(true)} action={jobs.length?'Tải CV':'Tạo vị trí'}/>:<div className="short-list">{candidates.filter(c=>c.ai_status==='ready').slice(0,5).map((c,i)=><button className="candidate-line" key={c.id} onClick={()=>{setTab('candidates');setSelected(c)}}><div className="rank">#{i+1}</div><div className="candidate-avatar">{c.name.charAt(0).toUpperCase()}</div><div className="grow"><strong>{c.name}</strong><small>{c.job_title}</small></div><span className={'score '+scoreColor(c.score||0)}>{c.score}/100</span><ChevronRight size={16} className="muted"/></button>)}</div>}</section><section className="panel"><div className="panel-heading"><div><h2>Hoạt động gần đây</h2><p>Nhật ký thật từ NestJS & PostgreSQL</p></div><Activity size={18} className="muted"/></div>{events.length===0?<Empty icon={Activity} title="Chưa có hoạt động" description="Các bước tuyển dụng sẽ hiển thị ở đây."/>:<div className="activity-list">{events.slice(0,6).map(e=><div className="activity-row" key={e.id}><span className="activity-dot"/><div><p>{e.message}</p><small>{timeAgo(e.created_at)}</small></div></div>)}</div>}</section></div><section className="panel stack-panel"><div className="panel-heading"><div><h2>Kiến trúc hệ thống</h2><p>Luồng xử lý từ lúc tải CV tới email phỏng vấn</p></div></div><div className="flow-steps">{[{icon:FolderUp,title:'CV PDF / DOCX',sub:'Tải lên hồ sơ'},{icon:Bot,title:'Groq API',sub:'Đánh giá AI thật'},{icon:Database,title:'PostgreSQL',sub:'Lưu điểm & xếp hạng'},{icon:Workflow,title:'n8n',sub:'Workflow tự động'},{icon:Mail,title:'Gmail SMTP',sub:'Gửi thư mời thật'}].map((s,i)=><div className="flow-chunk" key={s.title}><div className="flow-box"><s.icon size={22}/><strong>{s.title}</strong><small>{s.sub}</small></div>{i<4&&<ArrowRight size={17} className="flow-arrow"/>}</div>)}</div></section></>}
- {tab==='jobs'&&<><SectionHead eyebrow="HIRING PIPELINE" title="Vị trí tuyển dụng" desc="Tạo mô tả và yêu cầu công việc làm tiêu chí đánh giá CV." action={<button className="button primary" onClick={()=>setJobModal(true)}><Plus size={18}/> Tạo vị trí</button>}/><div className="job-grid">{jobs.map(job=><div className="job-card" key={job.id}><div className="job-card-head"><span className="job-illustration"><BriefcaseBusiness size={22}/></span><Pill tone="green">Đang tuyển</Pill></div><h2>{job.title}</h2><p>{job.description}</p><div className="meta-line"><span><Database size={14}/> {job.department}</span><span><Link2 size={14}/> {job.location}</span></div><div className="job-footer"><span><Users size={15}/> {candidates.filter(c=>c.job_id===job.id).length} ứng viên</span><button className="button outline small" onClick={()=>{setUploadForm(f=>({...f,jobId:job.id}));setUploadModal(true)}}>Tải CV <ArrowRight size={15}/></button></div><details className="job-requirements"><summary>Xem yêu cầu tuyển dụng</summary><p>{job.requirements}</p></details></div>)}{jobs.length===0&&<div className="full-grid"><Empty icon={BriefcaseBusiness} title="Chưa có vị trí tuyển dụng" description="Tạo một vị trí và nêu rõ kỹ năng/kinh nghiệm cần thiết để Groq có cơ sở đánh giá." action="Tạo vị trí ngay" onClick={()=>setJobModal(true)}/></div>}</div></>}
- {tab==='candidates'&&<><SectionHead eyebrow="AI TALENT SCORING" title="Ứng viên & xếp hạng AI" desc="Điểm số từ Groq API; so sánh với tiêu chí công việc. Người tuyển dụng phải duyệt kết quả." action={<button className="button primary" disabled={!jobs.length} onClick={()=>setUploadModal(true)}><FolderUp size={18}/> Tải CV & phân tích</button>}/><div className="panel table-panel"><div className="filter-row"><div className="search"><Search size={17}/><input placeholder="Tìm ứng viên, email, vị trí..." value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={jobFilter} onChange={e=>setJobFilter(e.target.value)}><option value="all">Tất cả vị trí</option>{jobs.map(j=><option key={j.id} value={j.id}>{j.title}</option>)}</select><span className="result-count">{sorted.length} ứng viên</span></div>{sorted.length===0?<Empty icon={Users} title="Không tìm thấy ứng viên" description="Hãy tải hồ sơ PDF hoặc DOCX để AI phân tích và xếp hạng."/>:<div className="table-scroll"><table><thead><tr><th>ỨNG VIÊN</th><th>VỊ TRÍ</th><th>AI SCORE <ArrowDownUp size={12}/></th><th>TRẠNG THÁI</th><th>HÀNH ĐỘNG</th></tr></thead><tbody>{sorted.map(c=><tr key={c.id} onClick={()=>setSelected(c)} className="clickable"><td><div className="who"><span className="candidate-avatar">{c.name.charAt(0).toUpperCase()}</span><span><strong>{c.name}</strong>{c.rank_position&&<small>#{c.rank_position} trong vị trí</small>}<small>{c.email}</small></span></div></td><td><span className="td-title">{c.job_title}</span></td><td>{c.score!==null?<div className="score-cell"><span className={'score '+scoreColor(c.score)}>{c.score}/100</span><span className="mini-bar"><i style={{width:`${c.score}%`}}/></span></div>:<span className="muted">—</span>}</td><td>{c.ai_status==='ready'?<Pill tone="green">Đã phân tích</Pill>:c.ai_status==='error'?<Pill tone="red">Groq lỗi</Pill>:<Pill tone="amber">Đang chờ</Pill>}</td><td><button className="button ghost small" onClick={e=>{e.stopPropagation();setSelected(c)}}>Xem chi tiết <ChevronRight size={15}/></button></td></tr>)}</tbody></table></div>}</div>{selected&&<div className="panel candidate-detail"><div className="detail-heading"><div><span className="eyebrow">GROQ AI REVIEW</span><h2>Hồ sơ: {selected.name}</h2><p>{selected.job_title} · {selected.cv_filename}</p></div><button className="icon-button" onClick={()=>setSelected(null)}><X size={19}/></button></div>{selected.ai_status==='ready'?<><div className="detail-score"><div className={'big-score '+scoreColor(selected.score||0)}><b>{selected.score}</b><span>/ 100</span></div><div className="grow"><h3>Đánh giá của Groq</h3><p>{selected.ai_summary}</p><small>Độ tin cậy theo mô hình: {selected.ai_confidence==='high'?'Cao':selected.ai_confidence==='medium'?'Trung bình':'Thấp'} · Cần người tuyển dụng xác minh</small></div></div><div className="two-cols detail-cols"><div><h4><CheckCircle2 size={17}/> Điểm mạnh</h4><ul>{selected.ai_strengths?.map((x,i)=><li key={i}>{x}</li>)}</ul></div><div><h4 className="red-text"><CircleAlert size={17}/> Điểm cần bổ sung</h4><ul>{selected.ai_gaps?.map((x,i)=><li key={i}>{x}</li>)}</ul></div></div><div className="skill-list">{selected.ai_skills?.map((s,i)=><Pill key={i}>{s}</Pill>)}</div><div className="detail-actions"><button className="button primary" onClick={()=>openSchedule(selected)}><CalendarDays size={17}/> Mời phỏng vấn</button><button className="button outline" disabled={!!busy} onClick={()=>analyze(selected.id)}><RefreshCw size={16}/> AI phân tích lại</button></div></>:<div className="unscored"><Pill tone={selected.ai_status==='error'?'red':'amber'}>{selected.ai_status==='error'?'Groq trả lỗi':'Chưa phân tích'}</Pill><p>{selected.ai_error||'Chưa có dữ liệu đánh giá.'}</p><button className="button primary" disabled={!!busy} onClick={()=>analyze(selected.id)}>{busy==='analyze'?<LoaderCircle size={15} className="spin"/>:<Sparkles size={16}/>} Gọi Groq phân tích thật</button></div>}</div>}</>}
+ {tab==='overview'&&<><SectionHead eyebrow="RECRUITMENT INTELLIGENCE" title="Tổng quan tuyển dụng" desc="Theo dõi hoạt động tuyển dụng và kết quả phân tích thực từ Groq." action={<button className="button primary" onClick={()=>jobs.length?setUploadModal(true):setJobModal(true)}><Plus size={18}/>{jobs.length?'Thêm CV ứng viên':'Tạo vị trí đầu tiên'}</button>}/><div className="stat-grid">{[{label:'Vị trí đang tuyển',value:stats.open_jobs,icon:BriefcaseBusiness,theme:'blue'},{label:'Tổng số ứng viên',value:stats.candidates,icon:Users,theme:'purple'},{label:'CV đã phân tích',value:stats.analyzed,icon:Sparkles,theme:'green'},{label:'Lịch phỏng vấn',value:stats.interviews,icon:CalendarDays,theme:'orange'}].map(s=><div className="stat-card" key={s.label}><div className={'stat-icon '+s.theme}><s.icon size={21}/></div><span>{s.label}</span><strong>{s.value}</strong><small>Dữ liệu trong PostgreSQL</small></div>)}</div><div className="insight-grid"><section className="insight-card"><div className="insight-title"><span><Activity size={17}/> Tiến độ sàng lọc AI</span><b>{screeningRate}%</b></div><div className="progress-track"><span style={{width:`${Math.min(100,screeningRate)}%`}}/></div><p>{stats.analyzed} / {stats.candidates} hồ sơ đã được phân tích</p></section><section className="insight-card"><div className="insight-title"><span><CalendarDays size={17}/> Tỷ lệ lên lịch phỏng vấn</span><b>{interviewRate}%</b></div><div className="progress-track interview"><span style={{width:`${Math.min(100,interviewRate)}%`}}/></div><p>{stats.interviews} lịch phỏng vấn / {stats.candidates} hồ sơ</p></section><section className="insight-card insight-actions"><div className="insight-title"><span><Sparkles size={17}/> Công việc cần chú ý</span></div><div className="attention-list"><span>{pendingCount} CV chờ AI</span><span>{failedCount} CV cần kiểm tra</span></div><button className="text-button" onClick={()=>setTab('candidates')}>Quản lý ứng viên <ArrowRight size={15}/></button></section></div><div className="quick-actions"><span>THAO TÁC NHANH</span><button className="button outline" onClick={()=>setJobModal(true)}><BriefcaseBusiness size={16}/> Tạo vị trí</button><button className="button outline" disabled={!jobs.length} onClick={()=>setUploadModal(true)}><FolderUp size={16}/> Tải CV</button><button className="button outline" onClick={()=>setTab('interviews')}><CalendarDays size={16}/> Xem lịch</button><button className="button outline" onClick={()=>setTab('automation')}><Workflow size={16}/> Theo dõi n8n</button></div><div className="two-cols"><section className="panel"><div className="panel-heading"><div><h2>Ứng viên nổi bật</h2><p>Xếp hạng theo điểm Groq, chỉ mang tính hỗ trợ</p></div><button className="text-button" onClick={()=>setTab('candidates')}>Xem tất cả <ArrowRight size={15}/></button></div>{candidates.filter(c=>c.ai_status==='ready').length===0?<Empty icon={Users} title="Chưa có ứng viên được phân tích" description="Hãy tạo vị trí tuyển dụng, tải CV và để Groq phân tích." onClick={()=>jobs.length?setUploadModal(true):setJobModal(true)} action={jobs.length?'Tải CV':'Tạo vị trí'}/>:<div className="short-list">{candidates.filter(c=>c.ai_status==='ready').sort((a,b)=>(b.score ?? -1)-(a.score ?? -1)).slice(0,5).map((c,i)=><button className="candidate-line" key={c.id} onClick={()=>{setTab('candidates');setSelected(c)}}><div className="rank">#{i+1}</div><div className="candidate-avatar">{c.name.charAt(0).toUpperCase()}</div><div className="grow"><strong>{c.name}</strong><small>{c.job_title}</small></div><span className={'score '+scoreColor(c.score||0)}>{c.score}/100</span><ChevronRight size={16} className="muted"/></button>)}</div>}</section><section className="panel"><div className="panel-heading"><div><h2>Hoạt động gần đây</h2><p>Nhật ký thật từ NestJS & PostgreSQL</p></div><Activity size={18} className="muted"/></div>{events.length===0?<Empty icon={Activity} title="Chưa có hoạt động" description="Các bước tuyển dụng sẽ hiển thị ở đây."/>:<div className="activity-list">{events.slice(0,6).map(e=><div className="activity-row" key={e.id}><span className="activity-dot"/><div><p>{e.message}</p><small>{timeAgo(e.created_at)}</small></div></div>)}</div>}</section></div><section className="panel stack-panel"><div className="panel-heading"><div><h2>Kiến trúc hệ thống</h2><p>Luồng xử lý từ lúc tải CV tới email phỏng vấn</p></div></div><div className="flow-steps">{[{icon:FolderUp,title:'CV PDF / DOCX',sub:'Tải lên hồ sơ'},{icon:Bot,title:'Groq API',sub:'Đánh giá AI thật'},{icon:Database,title:'PostgreSQL',sub:'Lưu điểm & xếp hạng'},{icon:Workflow,title:'n8n',sub:'Workflow tự động'},{icon:Mail,title:'Gmail SMTP',sub:'Gửi thư mời thật'}].map((s,i)=><div className="flow-chunk" key={s.title}><div className="flow-box"><s.icon size={22}/><strong>{s.title}</strong><small>{s.sub}</small></div>{i<4&&<ArrowRight size={17} className="flow-arrow"/>}</div>)}</div></section></>}
+ {tab==='jobs'&&<><SectionHead eyebrow="HIRING PIPELINE" title="Vị trí tuyển dụng" desc="Tạo mô tả và yêu cầu công việc làm tiêu chí đánh giá CV." action={<button className="button primary" onClick={()=>setJobModal(true)}><Plus size={18}/> Tạo vị trí</button>}/><div className="job-toolbar">
+      <div className="search">
+        <Search size={17}/>
+        <input
+          aria-label="Tìm vị trí tuyển dụng"
+          placeholder="Tìm vị trí, phòng ban, địa điểm..."
+          value={jobSearch}
+          onChange={e=>setJobSearch(e.target.value)}
+        />
+      </div>
+      <select
+        aria-label="Sắp xếp vị trí"
+        value={jobOrder}
+        onChange={e=>setJobOrder(e.target.value)}
+      >
+        <option value="newest">Mới nhất</option>
+        <option value="name">Tên A–Z</option>
+        <option value="applicants">Nhiều ứng viên</option>
+      </select>
+      <span className="result-count">{filteredJobs.length} vị trí</span>
+    </div>
+    <div className="job-grid">{visibleJobs.map(job=><div className="job-card" key={job.id}><div className="job-card-head"><span className="job-illustration"><BriefcaseBusiness size={22}/></span><Pill tone="green">Đang tuyển</Pill></div><h2>{job.title}</h2><p>{job.description}</p><div className="meta-line"><span><Database size={14}/> {job.department}</span><span><Link2 size={14}/> {job.location}</span></div><div className="job-footer"><span><Users size={15}/> {candidates.filter(c=>c.job_id===job.id).length} ứng viên</span><button className="button outline small" onClick={()=>{setUploadForm(f=>({...f,jobId:job.id}));setUploadModal(true)}}>Tải CV <ArrowRight size={15}/></button></div><details className="job-requirements"><summary>Xem yêu cầu tuyển dụng</summary><p>{job.requirements}</p></details></div>)}{filteredJobs.length===0&&<div className="full-grid"><Empty icon={BriefcaseBusiness} title={jobs.length===0?"Chưa có vị trí tuyển dụng":"Không tìm thấy vị trí phù hợp"} description={jobs.length===0?"Tạo một vị trí và nêu rõ kỹ năng/kinh nghiệm cần thiết để Groq có cơ sở đánh giá.":"Thử tìm từ khóa hoặc phòng ban khác."} action="Tạo vị trí ngay" onClick={()=>setJobModal(true)}/></div>}</div>
+    {filteredJobs.length>0&&
+      <div className="job-pagination">
+        <span>
+          Hiển thị {(safeJobPage-1)*jobPageSize+1}–
+          {Math.min(safeJobPage*jobPageSize,filteredJobs.length)}
+          / {filteredJobs.length} vị trí
+        </span>
+        <div className="job-page-actions">
+          <select
+            aria-label="Số vị trí mỗi trang"
+            value={jobPageSize}
+            onChange={e=>setJobPageSize(Number(e.target.value))}
+          >
+            <option value={6}>6 / trang</option>
+            <option value={12}>12 / trang</option>
+            <option value={24}>24 / trang</option>
+          </select>
+          <button
+            className="button outline small"
+            type="button"
+            disabled={safeJobPage<=1}
+            onClick={()=>setJobPage(safeJobPage-1)}
+          >Trước</button>
+          <strong>Trang {safeJobPage} / {jobPages}</strong>
+          <button
+            className="button outline small"
+            type="button"
+            disabled={safeJobPage>=jobPages}
+            onClick={()=>setJobPage(safeJobPage+1)}
+          >Sau</button>
+        </div>
+      </div>
+    }</>}
+ {tab==='candidates'&&<><SectionHead eyebrow="AI TALENT SCORING" title="Ứng viên & xếp hạng AI" desc="Điểm số từ Groq API; so sánh với tiêu chí công việc. Người tuyển dụng phải duyệt kết quả." action={<button className="button primary" disabled={!jobs.length} onClick={()=>setUploadModal(true)}><FolderUp size={18}/> Tải CV & phân tích</button>}/><div className="panel table-panel"><div className="filter-row"><div className="search"><Search size={17}/><input placeholder="Tìm ứng viên, email, vị trí..." value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={jobFilter} onChange={e=>setJobFilter(e.target.value)}><option value="all">Tất cả vị trí</option>{jobs.map(j=><option key={j.id} value={j.id}>{j.title}</option>)}</select><select aria-label="Trạng thái AI" value={aiFilter} onChange={e=>setAiFilter(e.target.value)}>
+      <option value="all">Tất cả trạng thái</option>
+      <option value="ready">Đã phân tích</option>
+      <option value="pending">Đang chờ AI</option>
+      <option value="error">AI lỗi</option>
+    </select><span className="result-count">{sorted.length} ứng viên</span></div>{sorted.length===0?<Empty icon={Users} title="Không tìm thấy ứng viên" description="Hãy tải hồ sơ PDF hoặc DOCX để AI phân tích và xếp hạng."/>:<div className="table-scroll"><table><thead><tr><th>ỨNG VIÊN</th><th>VỊ TRÍ</th><th>AI SCORE <ArrowDownUp size={12}/></th><th>TRẠNG THÁI</th><th>HÀNH ĐỘNG</th></tr></thead><tbody>{visibleCandidates.map(c=><tr key={c.id} onClick={()=>setSelected(c)} className="clickable"><td><div className="who"><span className="candidate-avatar">{c.name.charAt(0).toUpperCase()}</span><span><strong>{c.name}</strong>{c.rank_position&&<small>#{c.rank_position} trong vị trí</small>}<small>{c.email}</small></span></div></td><td><span className="td-title">{c.job_title}</span></td><td>{c.score!==null?<div className="score-cell"><span className={'score '+scoreColor(c.score)}>{c.score}/100</span><span className="mini-bar"><i style={{width:`${c.score}%`}}/></span></div>:<span className="muted">—</span>}</td><td>{c.ai_status==='ready'?<Pill tone="green">Đã phân tích</Pill>:c.ai_status==='error'?<Pill tone="red">Groq lỗi</Pill>:<Pill tone="amber">Đang chờ</Pill>}</td><td><button className="button ghost small" onClick={e=>{e.stopPropagation();setSelected(c)}}>Xem chi tiết <ChevronRight size={15}/></button></td></tr>)}</tbody></table></div>}
+    {sorted.length>0&&
+      <div className="candidate-pagination">
+        <span>
+          Hiển thị {candidateStart+1}–{Math.min(candidateStart+candidatePageSize,sorted.length)} / {sorted.length} ứng viên
+        </span>
+        <div className="candidate-page-actions">
+          <select
+            aria-label="Số ứng viên mỗi trang"
+            value={candidatePageSize}
+            onChange={e=>setCandidatePageSize(Number(e.target.value))}
+          >
+            <option value={10}>10 / trang</option>
+            <option value={20}>20 / trang</option>
+            <option value={50}>50 / trang</option>
+          </select>
+          <button type="button" className="button outline small"
+            disabled={currentCandidatePage===1}
+            onClick={()=>setCandidatePage(currentCandidatePage-1)}>
+            Trước
+          </button>
+          <strong>Trang {currentCandidatePage} / {candidatePageCount}</strong>
+          <button type="button" className="button outline small"
+            disabled={currentCandidatePage===candidatePageCount}
+            onClick={()=>setCandidatePage(currentCandidatePage+1)}>
+            Sau
+          </button>
+        </div>
+      </div>
+    }</div>{selected&&<div className="panel candidate-detail"><div className="detail-heading"><div><span className="eyebrow">GROQ AI REVIEW</span><h2>Hồ sơ: {selected.name}</h2><p>{selected.job_title} · {selected.cv_filename}</p></div><button className="icon-button" onClick={()=>setSelected(null)}><X size={19}/></button></div>{selected.ai_status==='ready'?<><div className="detail-score"><div className={'big-score '+scoreColor(selected.score||0)}><b>{selected.score}</b><span>/ 100</span></div><div className="grow"><h3>Đánh giá của Groq</h3><p>{selected.ai_summary}</p><small>Độ tin cậy theo mô hình: {selected.ai_confidence==='high'?'Cao':selected.ai_confidence==='medium'?'Trung bình':'Thấp'} · Cần người tuyển dụng xác minh</small></div></div><div className="two-cols detail-cols"><div><h4><CheckCircle2 size={17}/> Điểm mạnh</h4><ul>{selected.ai_strengths?.map((x,i)=><li key={i}>{x}</li>)}</ul></div><div><h4 className="red-text"><CircleAlert size={17}/> Điểm cần bổ sung</h4><ul>{selected.ai_gaps?.map((x,i)=><li key={i}>{x}</li>)}</ul></div></div><div className="skill-list">{selected.ai_skills?.map((s,i)=><Pill key={i}>{s}</Pill>)}</div><div className="detail-actions"><button className="button primary" onClick={()=>openSchedule(selected)}><CalendarDays size={17}/> Mời phỏng vấn</button><button className="button outline" disabled={!!busy} onClick={()=>analyze(selected.id)}><RefreshCw size={16}/> AI phân tích lại</button></div></>:<div className="unscored"><Pill tone={selected.ai_status==='error'?'red':'amber'}>{selected.ai_status==='error'?'Groq trả lỗi':'Chưa phân tích'}</Pill><p>{selected.ai_error||'Chưa có dữ liệu đánh giá.'}</p><button className="button primary" disabled={!!busy} onClick={()=>analyze(selected.id)}>{busy==='analyze'?<LoaderCircle size={15} className="spin"/>:<Sparkles size={16}/>} Gọi Groq phân tích thật</button></div>}</div>}</>}
  {tab==='interviews'&&<>
  <SectionHead eyebrow="INTERVIEW MANAGEMENT" title="Lịch phỏng vấn" desc="Đặt lịch, theo dõi thư mời và email nhắc lịch." action={<button className="button outline" onClick={()=>setTab('candidates')}><Users size={17}/> Chọn ứng viên</button>}/>
- <div className="panel table-panel">{interviews.length===0?<Empty icon={CalendarDays} title="Chưa có lịch phỏng vấn" description="Chọn ứng viên đã được Groq phân tích, sau đó bấm Mời phỏng vấn." onClick={()=>setTab('candidates')} action="Chọn ứng viên"/>:<div className="table-scroll"><table><thead><tr><th>ỨNG VIÊN</th><th>THỜI GIAN (VN)</th><th>HÌNH THỨC</th><th>THƯ MỜI</th><th>NHẮC LỊCH</th><th>HÀNH ĐỘNG</th></tr></thead><tbody>{interviews.map(i=>{
+ <div className="panel table-panel">
+ <div className="filter-row">
+  <div className="search">
+   <Search size={17}/>
+   <input
+    aria-label="Tìm lịch phỏng vấn"
+    placeholder="Tìm tên, email, vị trí..."
+    value={ivSearch}
+    onChange={e=>{setIvSearch(e.target.value);setIvPage(1)}}
+   />
+  </div>
+  <select aria-label="Trạng thái email"
+   value={ivEmail}
+   onChange={e=>{setIvEmail(e.target.value);setIvPage(1)}}>
+   <option value="all">Tất cả email</option>
+   <option value="sent">Đã gửi</option>
+   <option value="pending">Chưa gửi</option>
+   <option value="failed">SMTP lỗi</option>
+  </select>
+  <span className="result-count">{ivFiltered.length} lịch</span>
+ </div>{ivFiltered.length===0?<Empty icon={CalendarDays} title={interviews.length===0?"Chưa có lịch phỏng vấn":"Không tìm thấy lịch phù hợp"} description="Chọn ứng viên đã được Groq phân tích, sau đó bấm Mời phỏng vấn." onClick={()=>setTab('candidates')} action="Chọn ứng viên"/>:<div className="table-scroll"><table><thead><tr><th>ỨNG VIÊN</th><th>THỜI GIAN (VN)</th><th>HÌNH THỨC</th><th>THƯ MỜI</th><th>NHẮC LỊCH</th><th>HÀNH ĐỘNG</th></tr></thead><tbody>{ivVisible.map(i=>{
  const startsAt=new Date(i.starts_at).getTime(),now=Date.now(),cancelled=i.status==='cancelled',expired=startsAt<=now;
  const retryBlocked=cancelled?'Lịch đã hủy':expired?'Lịch đã bắt đầu':i.email_status==='unknown'?'Cần đối chiếu thư đã gửi':i.email_status==='sending'?'Đang xử lý thư mời':null;
  const reminderPending=cancelled?'Lịch đã hủy':startsAt<=now+10*60000?'Đã qua hạn nhắc':i.email_status!=='sent'?'Chờ thư mời thành công':startsAt>now+2*60*60000?'Chờ đến trước 2 tiếng':'Chờ gửi nhắc';
@@ -74,7 +247,30 @@ export default function Page(){
  <td>{i.email_status==='sent'?<span className="muted">Đã hoàn tất thư mời</span>:<><button className="button outline small" disabled={!!busy||!!retryBlocked} title={retryBlocked||undefined} onClick={()=>retry(i.id)}><Send size={14}/> Gửi qua n8n</button>{retryBlocked&&<small className="block muted">{retryBlocked}</small>}</>}</td>
  </tr>;
  })}</tbody></table></div>}</div>
- <div className="info-note"><ShieldCheck size={18}/><p>Email nhắc lịch tự gửi trước phỏng vấn 2 tiếng. Hệ thống kiểm tra mỗi phút và chỉ nhắc một lần khi thư mời đã gửi thành công, lịch còn hiệu lực và còn hơn 10 phút. Lịch được tạo khi còn dưới 2 tiếng sẽ được nhắc ở lượt kiểm tra tiếp theo. Trạng thái cần đối chiếu sẽ tạm dừng gửi để kiểm tra thư đã gửi.</p></div>
+ {ivFiltered.length>0&&
+ <div className="candidate-pagination">
+  <span>
+   Hiển thị {ivFrom+1}–
+   {Math.min(ivFrom+ivSize,ivFiltered.length)}
+   / {ivFiltered.length}
+  </span>
+  <div className="candidate-page-actions">
+   <select aria-label="Số lịch mỗi trang"
+    value={ivSize}
+    onChange={e=>{setIvSize(Number(e.target.value));setIvPage(1)}}>
+    <option value={10}>10/trang</option>
+    <option value={20}>20/trang</option>
+    <option value={50}>50/trang</option>
+   </select>
+   <button type="button" className="button outline small"
+    disabled={ivSafePage===1}
+    onClick={()=>setIvPage(ivSafePage-1)}>Trước</button>
+   <b>Trang {ivSafePage}/{ivPages}</b>
+   <button type="button" className="button outline small"
+    disabled={ivSafePage===ivPages}
+    onClick={()=>setIvPage(ivSafePage+1)}>Sau</button>
+  </div>
+ </div>}<div className="info-note"><ShieldCheck size={18}/><p>Email nhắc lịch tự gửi trước phỏng vấn 2 tiếng. Hệ thống kiểm tra mỗi phút và chỉ nhắc một lần khi thư mời đã gửi thành công, lịch còn hiệu lực và còn hơn 10 phút. Lịch được tạo khi còn dưới 2 tiếng sẽ được nhắc ở lượt kiểm tra tiếp theo. Trạng thái cần đối chiếu sẽ tạm dừng gửi để kiểm tra thư đã gửi.</p></div>
  </>}
  {tab==='automation'&&<>
  <SectionHead eyebrow="AUTOMATION CONTROL CENTER · PRO" title="12 workflow n8n hoạt động thật" desc="Backend kết nối webhook; kết quả và lỗi ghi trong PostgreSQL. Trạng thái bên dưới là lịch sử Backend, không giả định workflow đã Published." action={<a className="button primary" href="http://localhost:5679" target="_blank" rel="noreferrer"><Workflow size={18}/> Mở n8n cổng 5679 <ArrowRight size={15}/></a>}/>
@@ -85,7 +281,19 @@ export default function Page(){
  <div className="connection-card"><Mail size={23}/><h3>Gmail SMTP</h3><Pill tone={health?.smtpConfigured?'green':'red'}>{health?.smtpConfigured?'Đã có thông tin':'Chưa cấu hình'}</Pill><p>Thư mời và nhắc lịch gửi thực, kiểm tra bằng hộp thư thử nghiệm của bạn.</p></div>
  </div>
  <section className="panel pro-workflows"><div className="panel-heading"><div><h2>12 Workflows của TalentFlow PRO</h2><p>Mỗi quy trình có webhook/trigger và xử lý nghiệp vụ thật qua NestJS</p></div></div>
- <div className="pro-workflow-grid">{
+ <div className="filter-row">
+      <div className="search">
+        <Search size={17}/>
+        <input
+          aria-label="Tìm workflow n8n"
+          placeholder="Tìm workflow theo tên hoặc chức năng..."
+          value={workflowSearch}
+          onChange={e=>setWorkflowSearch(e.target.value)}
+        />
+      </div>
+      <span className="result-count">12 workflow</span>
+    </div>
+    <div className="pro-workflow-grid">{
  [{key:'cv-intake',name:'01. CV Intake',desc:'Xác thực hồ sơ CV qua NestJS',icon:FolderUp},
  {key:'ai-screening',name:'02. AI Screening',desc:'Groq phân tích CV và lưu kết quả',icon:Bot},
  {key:'candidate-ranking',name:'03. Candidate Ranking',desc:'Xếp hạng theo vị trí tuyển dụng',icon:ArrowDownUp},
@@ -98,12 +306,89 @@ export default function Page(){
  {key:'status-notify',name:'10. Recruiter Notification',desc:'Gửi trạng thái AI cho người tuyển dụng',icon:Mail},
  {key:'daily-report',name:'11. Daily Report',desc:'Báo cáo tuyển dụng định kỳ',icon:Activity},
  {key:'n8n-error',name:'12. Error Monitoring',desc:'Ghi log lỗi và cảnh báo nghiêm trọng',icon:ShieldCheck}]
- .map(w=>{const last=runs.find(r=>r.workflow===w.key||(w.key==='n8n-error'&&r.workflow.startsWith('n8n-error:')));return <div className="pro-workflow-card" key={w.key}><w.icon size={21}/><h3>{w.name}</h3><p>{w.desc}</p>{last?<><Pill tone={last.status==='success'?'green':last.status==='failed'?'red':'amber'}>{last.status==='success'?'Đã xử lý':last.status==='failed'?'Có lỗi':'Đã nhận sự kiện'}</Pill><small>{timeAgo(last.created_at)}</small></>:<Pill>Chưa ghi nhận lượt chạy</Pill>}</div>})}
+ .filter(w=>
+      [w.key,w.name,w.desc].join(' ')
+        .toLowerCase()
+        .includes(workflowSearch.trim().toLowerCase())
+    ).map(w=>{const last=runs.find(r=>r.workflow===w.key||(w.key==='n8n-error'&&r.workflow.startsWith('n8n-error:')));return <div className="pro-workflow-card" key={w.key}><w.icon size={21}/><h3>{w.name}</h3><p>{w.desc}</p>{last?<><Pill tone={last.status==='success'?'green':last.status==='failed'?'red':'amber'}>{last.status==='success'?'Đã xử lý':last.status==='failed'?'Có lỗi':'Đã nhận sự kiện'}</Pill><small>{timeAgo(last.created_at)}</small></>:<Pill>Chưa ghi nhận lượt chạy</Pill>}</div>})}
  </div></section>
  <div className="two-cols"><section className="panel"><div className="panel-heading"><div><h2>Điều khiển demo</h2><p>Thao tác thật, có ghi lịch sử</p></div></div>
  <div className="pro-control-area"><Field label="Cập nhật xếp hạng cho vị trí"><select id="pro-ranking-job" value={jobFilter==='all'?(jobs[0]?.id||''):jobFilter} onChange={e=>setJobFilter(e.target.value)}><option value="">Chọn vị trí tuyển dụng</option>{jobs.map(j=><option key={j.id} value={j.id}>{j.title}</option>)}</select></Field><button className="button outline" disabled={!!busy||!jobs.length} onClick={()=>rerank(jobFilter==='all'?(jobs[0]?.id||''):jobFilter)}><ArrowDownUp size={17}/> Chạy workflow Ranking</button><p className="hint">Ranking lưu thứ hạng vào DB; chỉ các CV đã được Groq chấm thành công mới tham gia.</p><button className="button primary" disabled={!!busy} onClick={sendReminders}><Clock size={16}/> Chạy Follow-up ngay</button><p className="hint">Tự nhắc trước phỏng vấn 2 tiếng, kiểm tra mỗi phút. Chạy ngay cũng chỉ gửi cho lịch đã gửi thư mời thành công, còn hơn 10 phút đến tối đa 2 tiếng và chưa được nhắc.</p></div>
- </section><section className="panel"><div className="panel-heading"><div><h2>Nhật ký n8n → NestJS</h2><p>{runs.length} bản ghi gần nhất · ghi từ backend</p></div><button className="icon-button" onClick={()=>void load()}><RefreshCw size={17}/></button></div><div className="activity-list full-activity">{runs.length===0?<Empty icon={Activity} title="Chưa có lượt chạy" description="Sau khi Publish các workflow và tải CV, nhật ký sẽ xuất hiện."/>:runs.slice(0,18).map(r=><div className="activity-row" key={r.id}><span className="activity-dot"/><div><Pill tone={r.status==='success'?'green':r.status==='failed'?'red':'amber'}>{r.workflow} · {r.status}</Pill><p>{r.detail}</p><small>{timeAgo(r.created_at)}</small></div></div>)}</div></section></div>
- <div className="info-note"><ShieldCheck size={19}/><p>AI chỉ hỗ trợ sàng lọc theo kỹ năng, kinh nghiệm và bằng chứng; người tuyển dụng duyệt quyết định. Dữ liệu CV không đưa trực tiếp qua webhook; chỉ chuyển ID nội bộ.</p></div>
+ </section><section className="panel"><div className="panel-heading"><div><h2>Nhật ký n8n → NestJS</h2><p>{filteredRuns.length} / {runs.length} bản ghi đã tải từ NestJS</p></div><button className="icon-button" onClick={()=>void load()}><RefreshCw size={17}/></button></div><div className="filter-row">
+      <div className="search">
+        <Search size={17}/>
+        <input
+          aria-label="Tìm nhật ký"
+          placeholder="Tìm workflow hoặc nội dung nhật ký..."
+          value={runSearch}
+          onChange={e=>{
+            setRunSearch(e.target.value);
+            setRunPage(1);
+          }}
+        />
+      </div>
+      <select
+        aria-label="Trạng thái nhật ký"
+        value={runStatus}
+        onChange={e=>{
+          setRunStatus(e.target.value);
+          setRunPage(1);
+        }}
+      >
+        <option value="all">Tất cả</option>
+        <option value="success">Thành công</option>
+        <option value="failed">Có lỗi</option>
+      </select>
+    </div>
+    <div className="activity-list full-activity">{
+      filteredRuns.length===0?<Empty icon={Activity} title="Chưa có lượt chạy" description="Sau khi Publish các workflow và tải CV, nhật ký sẽ xuất hiện."/>:visibleRuns.map(r=><div className="activity-row" key={r.id}><span className="activity-dot"/><div><Pill tone={r.status==='success'?'green':r.status==='failed'?'red':'amber'}>{r.workflow} · {r.status}</Pill><p>{r.detail}</p><small>{timeAgo(r.created_at)}</small></div></div>)}</div>
+      {filteredRuns.length>0&&
+        <div className="candidate-pagination">
+          <span>
+            Hiển thị {(safeRunPage-1)*runPageSize+1}–
+            {Math.min(safeRunPage*runPageSize,filteredRuns.length)}
+            / {filteredRuns.length} bản ghi đã tải
+          </span>
+          <div className="candidate-page-actions">
+            <select
+              aria-label="Số nhật ký mỗi trang"
+              value={runPageSize}
+              onChange={e=>{
+                setRunPageSize(Number(e.target.value));
+                setRunPage(1);
+              }}
+            >
+              <option value={10}>10 / trang</option>
+              <option value={20}>20 / trang</option>
+              <option value={50}>50 / trang</option>
+            </select>
+
+            <button
+              type="button"
+              className="button outline small"
+              disabled={safeRunPage===1}
+              onClick={()=>setRunPage(safeRunPage-1)}
+            >
+              Trước
+            </button>
+
+            <strong>
+              Trang {safeRunPage} / {runPageCount}
+            </strong>
+
+            <button
+              type="button"
+              className="button outline small"
+              disabled={safeRunPage===runPageCount}
+              onClick={()=>setRunPage(safeRunPage+1)}
+            >
+              Sau
+            </button>
+          </div>
+        </div>
+      }
+    </section></div>
+    <div className="info-note"><ShieldCheck size={19}/><p>AI chỉ hỗ trợ sàng lọc theo kỹ năng, kinh nghiệm và bằng chứng; người tuyển dụng duyệt quyết định. Dữ liệu CV không đưa trực tiếp qua webhook; chỉ chuyển ID nội bộ.</p></div>
  </>}
  </main></div>
  {jobModal&&<div className="modal-overlay" onMouseDown={e=>e.target===e.currentTarget&&setJobModal(false)}><div className="modal"><div className="modal-heading"><div><span className="eyebrow">NEW JOB OPENING</span><h2>Tạo vị trí tuyển dụng</h2><p>Groq sẽ dùng những tiêu chí này để chấm CV.</p></div><button className="icon-button" onClick={()=>setJobModal(false)}><X size={19}/></button></div><form onSubmit={saveJob}><Field label="Tên vị trí *"><input required minLength={3} maxLength={180} value={jobForm.title} onChange={e=>setJobForm({...jobForm,title:e.target.value})} placeholder="Ví dụ: Backend Developer (NestJS)"/></Field><div className="form-grid"><Field label="Phòng ban"><input value={jobForm.department} onChange={e=>setJobForm({...jobForm,department:e.target.value})} placeholder="Kỹ thuật"/></Field><Field label="Địa điểm"><input value={jobForm.location} onChange={e=>setJobForm({...jobForm,location:e.target.value})}/></Field></div><Field label="Mô tả công việc *"><textarea required minLength={10} rows={4} value={jobForm.description} onChange={e=>setJobForm({...jobForm,description:e.target.value})} placeholder="Mục tiêu công việc, nhiệm vụ hàng ngày..."/></Field><Field label="Yêu cầu ứng viên *"><textarea required minLength={5} rows={5} value={jobForm.requirements} onChange={e=>setJobForm({...jobForm,requirements:e.target.value})} placeholder="Kỹ năng bắt buộc, số năm kinh nghiệm, công nghệ, tiêu chí ưu tiên..."/></Field><div className="modal-actions"><button type="button" className="button outline" onClick={()=>setJobModal(false)}>Hủy</button><button type="submit" className="button primary" disabled={!!busy}>{busy==='job'?<LoaderCircle className="spin" size={16}/>:<Plus size={16}/>} Tạo vị trí</button></div></form></div></div>}
