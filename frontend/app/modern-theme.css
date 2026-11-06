@@ -1,0 +1,141 @@
+/* TalentFlow AI PRO - Modern UI Theme */
+
+:root {
+  --navy: #141b3d;
+  --navy2: #292b70;
+  --blue: #6258e8;
+  --bg: #f7f8fd;
+  --ink: #1d2644;
+  --muted: #8290a9;
+  --border: #e8eaf3;
+  --shadow: 0 8px 30px rgba(33, 39, 92, .055);
+}
+
+html, body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.sidebar {
+  background: linear-gradient(165deg, #171d42 0%, #252554 100%);
+  box-shadow: 8px 0 28px rgba(20, 25, 65, .07);
+}
+
+.brand {
+  letter-spacing: -.7px;
+}
+
+.brand-mark {
+  background: linear-gradient(135deg, #7c6aff, #5146d7);
+  border-radius: 13px;
+  box-shadow: 0 8px 22px rgba(109, 88, 238, .3);
+}
+
+.navlink {
+  border-radius: 12px;
+  transition: background .2s ease, transform .2s ease;
+}
+
+.navlink:hover {
+  transform: translateX(2px);
+}
+
+.navlink.active {
+  background: rgba(130, 112, 255, .23);
+  box-shadow: inset 3px 0 #a99cff;
+}
+
+.topbar {
+  background: rgba(255, 255, 255, .94);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.main-content {
+  max-width: 1500px;
+}
+
+.sectionhead h1 {
+  font-size: clamp(26px, 2.3vw, 36px);
+  font-weight: 800;
+  letter-spacing: -1.1px;
+}
+
+.stat-card, .panel, .job-card,
+.connection-card, .insight-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 19px;
+  box-shadow: var(--shadow);
+}
+
+.stat-card, .job-card {
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.stat-card:hover, .job-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 15px 34px rgba(33, 39, 92, .1);
+}
+
+.stat-card strong {
+  color: #20264a;
+  letter-spacing: -1px;
+}
+
+.button.primary {
+  background: linear-gradient(135deg, #7265f1, #5248d6);
+  color: #ffffff;
+  border-radius: 11px;
+  box-shadow: 0 6px 17px rgba(99, 86, 229, .2);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6254e8, #4239c7);
+}
+
+.button.outline, .icon-button {
+  border-radius: 11px;
+}
+
+.panel-heading {
+  background: #ffffff;
+}
+
+table tbody tr {
+  transition: background .15s ease;
+}
+
+table tbody tr:hover {
+  background: #f8f7ff;
+}
+
+button:focus-visible, a:focus-visible,
+input:focus-visible, select:focus-visible {
+  outline: 3px solid #aca2ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+  .main-content {
+    padding: 22px 16px 54px;
+  }
+
+  .topbar {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .sectionhead h1 {
+    font-size: 25px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+  }
+}
