@@ -1,4 +1,99 @@
-/* TalentFlow AI PRO - Modern UI Theme */
+/* COMMIT 2 - SIDEBAR & HEADER UPGRADE */
+
+.sidebar {
+  width: 268px;
+  padding: 28px 16px 18px;
+  background: linear-gradient(
+    160deg,
+    #151b40 0%,
+    #25265d 100%
+  );
+}
+
+.sidebar .brand {
+  font-size: 20px;
+  letter-spacing: -0.8px;
+  margin-bottom: 8px;
+}
+
+.sidebar .brand b {
+  color: #a99cff;
+}
+
+.sidebar .navlink {
+  min-height: 46px;
+  border-radius: 13px;
+  padding: 12px 14px;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.sidebar .navlink:hover {
+  background: rgba(140, 128, 255, 0.16);
+  color: white;
+  transform: translateX(3px);
+}
+
+.sidebar .navlink.active {
+  background: linear-gradient(
+    90deg,
+    rgba(128, 105, 255, 0.36),
+    rgba(128, 105, 255, 0.12)
+  );
+  color: white;
+  box-shadow: inset 3px 0 #a99cff;
+}
+
+.sidebar .side-bottom {
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.09);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 78px;
+  background: rgba(255,255,255,0.96);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid #e8eaf4;
+  box-shadow: 0 4px 24px rgba(25,32,80,0.035);
+}
+
+.topbar .breadcrumb b {
+  color: #25264c;
+  font-weight: 800;
+}
+
+.topbar .top-actions {
+  gap: 12px;
+}
+
+.topbar .icon-button:hover {
+  background: #f0edff;
+  color: #6254e8;
+  border-color: #dcd5ff;
+}
+
+.topbar .avatar {
+  background: linear-gradient(135deg, #7366ee, #5145cd);
+  color: white;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: 70px;
+    padding: 18px 7px;
+  }
+
+  .topbar {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}/* TalentFlow AI PRO - Modern UI Theme */
 
 :root {
   --navy: #141b3d;
