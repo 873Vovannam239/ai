@@ -24,7 +24,10 @@ function SectionHead({eyebrow,title,desc,action}:{eyebrow?:string;title:string;d
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
 export default function Page(){
  const[auth,setAuth]=useState<boolean|null>(null); const[pass,setPass]=useState('');const[loginBusy,setLoginBusy]=useState(false);
- const[tab,setTab]=useState<Tab>('overview');const[jobs,setJobs]=useState<Job[]>([]);const[candidates,setCandidates]=useState<Candidate[]>([]);const[interviews,setInterviews]=useState<Interview[]>([]);const[events,setEvents]=useState<Event[]>([]);const[runs,setRuns]=useState<AutomationRun[]>([]);const[stats,setStats]=useState<Stats>(initialStats);const[health,setHealth]=useState<Health|null>(null);
+ const[tab,setTab]=useState<Tab>('overview');const[jobs,setJobs]=useState<Job[]>([]);const[candidates,setCandidates]=useState<Candidate[]>([]);const[interviews,setInterviews]=useState<Interview[]>([]);const[ivSearch,setIvSearch]=useState('');
+const[ivEmail,setIvEmail]=useState('all');
+const[ivPage,setIvPage]=useState(1);
+const[ivSize,setIvSize]=useState(10);const[events,setEvents]=useState<Event[]>([]);const[runs,setRuns]=useState<AutomationRun[]>([]);const[stats,setStats]=useState<Stats>(initialStats);const[health,setHealth]=useState<Health|null>(null);
  const[error,setError]=useState('');const[notice,setNotice]=useState('');const[busy,setBusy]=useState('');const[jobModal,setJobModal]=useState(false);const[uploadModal,setUploadModal]=useState(false);const[interviewModal,setInterviewModal]=useState(false);const[selected,setSelected]=useState<Candidate|null>(null);const[search,setSearch]=useState('');const[jobFilter,setJobFilter]=useState('all');const[aiFilter,setAiFilter]=useState('all');const[candidatePage,setCandidatePage]=useState(1);const[candidatePageSize,setCandidatePageSize]=useState(10);
  const[jobSearch,setJobSearch]=useState('');const[jobOrder,setJobOrder]=useState('newest');const[jobPage,setJobPage]=useState(1);const[jobPageSize,setJobPageSize]=useState(6);const[jobForm,setJobForm]=useState({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});
  const[uploadForm,setUploadForm]=useState({name:'',email:'',jobId:''});const[cvFile,setCvFile]=useState<File|null>(null);
@@ -78,6 +81,19 @@ export default function Page(){
  function openSchedule(c:Candidate){setSelected(c);setScheduleForm({candidateId:c.id,startsAt:'',durationMinutes:'30',mode:'online',meetingLink:'',notes:''});setInterviewModal(true);}
  async function schedule(e:FormEvent){e.preventDefault();await task('schedule',async()=>{if(!scheduleForm.startsAt)throw Error('Chọn ngày giờ phỏng vấn.');const result=await api('/interviews',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...scheduleForm,startsAt:new Date(scheduleForm.startsAt).toISOString(),durationMinutes:Number(scheduleForm.durationMinutes)})});setInterviewModal(false);setTab('interviews');const guide=Array.isArray(result.automation?.aiInterviewGuide)?result.automation.aiInterviewGuide:[];success([result.automation?.message||'Đã tạo lịch phỏng vấn.',guide.length?`Gợi ý câu hỏi từ Groq:\n${guide.map((q:string,i:number)=>`${i+1}. ${q}`).join('\n')}`:''].filter(Boolean).join('\n\n'));});}
  async function rerank(jobId:string){await task('rerank',async()=>{const r=await api('/automation/rerank',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId})});success(r.message||'Đã gọi n8n cập nhật xếp hạng.');});}
+
+ const ivFiltered=useMemo(()=>interviews.filter(i=>
+  (ivEmail==='all'||i.email_status===ivEmail)&&
+  [i.candidate_name,i.candidate_email,i.job_title]
+   .some(x=>String(x||'').toLowerCase()
+   .includes(ivSearch.trim().toLowerCase()))
+ ).sort((x,y)=>Date.parse(x.starts_at)-Date.parse(y.starts_at)),
+ [interviews,ivEmail,ivSearch]);
+
+ const ivPages=Math.max(1,Math.ceil(ivFiltered.length/ivSize));
+ const ivSafePage=Math.min(ivPage,ivPages);
+ const ivFrom=(ivSafePage-1)*ivSize;
+ const ivVisible=ivFiltered.slice(ivFrom,ivFrom+ivSize);
  async function sendReminders(){await task('followup',async()=>{const r=await api('/automation/followup',{method:'POST'});success(r.message||'Đã kích hoạt nhắc lịch.');});}
  async function retry(id:string){await task('retry',async()=>{const r=await api('/interviews/'+id+'/retry',{method:'POST'});success(r.message||'Đã kích hoạt lại workflow.');});}
  if(auth===null)return <div className="loading-screen"><LoaderCircle className="spin" size={36}/>Đang kết nối TalentFlow...</div>;
@@ -178,7 +194,27 @@ export default function Page(){
     }</div>{selected&&<div className="panel candidate-detail"><div className="detail-heading"><div><span className="eyebrow">GROQ AI REVIEW</span><h2>Hồ sơ: {selected.name}</h2><p>{selected.job_title} · {selected.cv_filename}</p></div><button className="icon-button" onClick={()=>setSelected(null)}><X size={19}/></button></div>{selected.ai_status==='ready'?<><div className="detail-score"><div className={'big-score '+scoreColor(selected.score||0)}><b>{selected.score}</b><span>/ 100</span></div><div className="grow"><h3>Đánh giá của Groq</h3><p>{selected.ai_summary}</p><small>Độ tin cậy theo mô hình: {selected.ai_confidence==='high'?'Cao':selected.ai_confidence==='medium'?'Trung bình':'Thấp'} · Cần người tuyển dụng xác minh</small></div></div><div className="two-cols detail-cols"><div><h4><CheckCircle2 size={17}/> Điểm mạnh</h4><ul>{selected.ai_strengths?.map((x,i)=><li key={i}>{x}</li>)}</ul></div><div><h4 className="red-text"><CircleAlert size={17}/> Điểm cần bổ sung</h4><ul>{selected.ai_gaps?.map((x,i)=><li key={i}>{x}</li>)}</ul></div></div><div className="skill-list">{selected.ai_skills?.map((s,i)=><Pill key={i}>{s}</Pill>)}</div><div className="detail-actions"><button className="button primary" onClick={()=>openSchedule(selected)}><CalendarDays size={17}/> Mời phỏng vấn</button><button className="button outline" disabled={!!busy} onClick={()=>analyze(selected.id)}><RefreshCw size={16}/> AI phân tích lại</button></div></>:<div className="unscored"><Pill tone={selected.ai_status==='error'?'red':'amber'}>{selected.ai_status==='error'?'Groq trả lỗi':'Chưa phân tích'}</Pill><p>{selected.ai_error||'Chưa có dữ liệu đánh giá.'}</p><button className="button primary" disabled={!!busy} onClick={()=>analyze(selected.id)}>{busy==='analyze'?<LoaderCircle size={15} className="spin"/>:<Sparkles size={16}/>} Gọi Groq phân tích thật</button></div>}</div>}</>}
  {tab==='interviews'&&<>
  <SectionHead eyebrow="INTERVIEW MANAGEMENT" title="Lịch phỏng vấn" desc="Đặt lịch, theo dõi thư mời và email nhắc lịch." action={<button className="button outline" onClick={()=>setTab('candidates')}><Users size={17}/> Chọn ứng viên</button>}/>
- <div className="panel table-panel">{interviews.length===0?<Empty icon={CalendarDays} title="Chưa có lịch phỏng vấn" description="Chọn ứng viên đã được Groq phân tích, sau đó bấm Mời phỏng vấn." onClick={()=>setTab('candidates')} action="Chọn ứng viên"/>:<div className="table-scroll"><table><thead><tr><th>ỨNG VIÊN</th><th>THỜI GIAN (VN)</th><th>HÌNH THỨC</th><th>THƯ MỜI</th><th>NHẮC LỊCH</th><th>HÀNH ĐỘNG</th></tr></thead><tbody>{interviews.map(i=>{
+ <div className="panel table-panel">
+ <div className="filter-row">
+  <div className="search">
+   <Search size={17}/>
+   <input
+    aria-label="Tìm lịch phỏng vấn"
+    placeholder="Tìm tên, email, vị trí..."
+    value={ivSearch}
+    onChange={e=>{setIvSearch(e.target.value);setIvPage(1)}}
+   />
+  </div>
+  <select aria-label="Trạng thái email"
+   value={ivEmail}
+   onChange={e=>{setIvEmail(e.target.value);setIvPage(1)}}>
+   <option value="all">Tất cả email</option>
+   <option value="sent">Đã gửi</option>
+   <option value="pending">Chưa gửi</option>
+   <option value="failed">SMTP lỗi</option>
+  </select>
+  <span className="result-count">{ivFiltered.length} lịch</span>
+ </div>{ivFiltered.length===0?<Empty icon={CalendarDays} title={interviews.length===0?"Chưa có lịch phỏng vấn":"Không tìm thấy lịch phù hợp"} description="Chọn ứng viên đã được Groq phân tích, sau đó bấm Mời phỏng vấn." onClick={()=>setTab('candidates')} action="Chọn ứng viên"/>:<div className="table-scroll"><table><thead><tr><th>ỨNG VIÊN</th><th>THỜI GIAN (VN)</th><th>HÌNH THỨC</th><th>THƯ MỜI</th><th>NHẮC LỊCH</th><th>HÀNH ĐỘNG</th></tr></thead><tbody>{ivVisible.map(i=>{
  const startsAt=new Date(i.starts_at).getTime(),now=Date.now(),cancelled=i.status==='cancelled',expired=startsAt<=now;
  const retryBlocked=cancelled?'Lịch đã hủy':expired?'Lịch đã bắt đầu':i.email_status==='unknown'?'Cần đối chiếu thư đã gửi':i.email_status==='sending'?'Đang xử lý thư mời':null;
  const reminderPending=cancelled?'Lịch đã hủy':startsAt<=now+10*60000?'Đã qua hạn nhắc':i.email_status!=='sent'?'Chờ thư mời thành công':startsAt>now+2*60*60000?'Chờ đến trước 2 tiếng':'Chờ gửi nhắc';
@@ -191,7 +227,30 @@ export default function Page(){
  <td>{i.email_status==='sent'?<span className="muted">Đã hoàn tất thư mời</span>:<><button className="button outline small" disabled={!!busy||!!retryBlocked} title={retryBlocked||undefined} onClick={()=>retry(i.id)}><Send size={14}/> Gửi qua n8n</button>{retryBlocked&&<small className="block muted">{retryBlocked}</small>}</>}</td>
  </tr>;
  })}</tbody></table></div>}</div>
- <div className="info-note"><ShieldCheck size={18}/><p>Email nhắc lịch tự gửi trước phỏng vấn 2 tiếng. Hệ thống kiểm tra mỗi phút và chỉ nhắc một lần khi thư mời đã gửi thành công, lịch còn hiệu lực và còn hơn 10 phút. Lịch được tạo khi còn dưới 2 tiếng sẽ được nhắc ở lượt kiểm tra tiếp theo. Trạng thái cần đối chiếu sẽ tạm dừng gửi để kiểm tra thư đã gửi.</p></div>
+ {ivFiltered.length>0&&
+ <div className="candidate-pagination">
+  <span>
+   Hiển thị {ivFrom+1}–
+   {Math.min(ivFrom+ivSize,ivFiltered.length)}
+   / {ivFiltered.length}
+  </span>
+  <div className="candidate-page-actions">
+   <select aria-label="Số lịch mỗi trang"
+    value={ivSize}
+    onChange={e=>{setIvSize(Number(e.target.value));setIvPage(1)}}>
+    <option value={10}>10/trang</option>
+    <option value={20}>20/trang</option>
+    <option value={50}>50/trang</option>
+   </select>
+   <button type="button" className="button outline small"
+    disabled={ivSafePage===1}
+    onClick={()=>setIvPage(ivSafePage-1)}>Trước</button>
+   <b>Trang {ivSafePage}/{ivPages}</b>
+   <button type="button" className="button outline small"
+    disabled={ivSafePage===ivPages}
+    onClick={()=>setIvPage(ivSafePage+1)}>Sau</button>
+  </div>
+ </div>}<div className="info-note"><ShieldCheck size={18}/><p>Email nhắc lịch tự gửi trước phỏng vấn 2 tiếng. Hệ thống kiểm tra mỗi phút và chỉ nhắc một lần khi thư mời đã gửi thành công, lịch còn hiệu lực và còn hơn 10 phút. Lịch được tạo khi còn dưới 2 tiếng sẽ được nhắc ở lượt kiểm tra tiếp theo. Trạng thái cần đối chiếu sẽ tạm dừng gửi để kiểm tra thư đã gửi.</p></div>
  </>}
  {tab==='automation'&&<>
  <SectionHead eyebrow="AUTOMATION CONTROL CENTER · PRO" title="12 workflow n8n hoạt động thật" desc="Backend kết nối webhook; kết quả và lỗi ghi trong PostgreSQL. Trạng thái bên dưới là lịch sử Backend, không giả định workflow đã Published." action={<a className="button primary" href="http://localhost:5679" target="_blank" rel="noreferrer"><Workflow size={18}/> Mở n8n cổng 5679 <ArrowRight size={15}/></a>}/>
