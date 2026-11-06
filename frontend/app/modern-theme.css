@@ -376,3 +376,59 @@ input:focus-visible, select:focus-visible {
     flex: 1;
   }
 }
+
+/* COMMIT 5 - JOB MANAGEMENT */
+
+.job-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 18px 0 22px;
+}
+
+.job-toolbar .search {
+  flex: 1 1 280px;
+  background: white;
+}
+
+.job-toolbar select,
+.job-page-actions select {
+  padding: 10px 14px;
+  border: 1px solid #e2e5f0;
+  border-radius: 12px;
+  background: white;
+  color: #273354;
+}
+
+.job-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 4px;
+  color: #65728c;
+  font-size: 13px;
+}
+
+.job-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.job-page-actions strong {
+  color: #273354;
+}
+
+@media (max-width: 680px) {
+  .job-toolbar .search {
+    flex-basis: 100%;
+  }
+
+  .job-pagination {
+    align-items: flex-start;
+  }
+}

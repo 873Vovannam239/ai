@@ -26,7 +26,7 @@ export default function Page(){
  const[auth,setAuth]=useState<boolean|null>(null); const[pass,setPass]=useState('');const[loginBusy,setLoginBusy]=useState(false);
  const[tab,setTab]=useState<Tab>('overview');const[jobs,setJobs]=useState<Job[]>([]);const[candidates,setCandidates]=useState<Candidate[]>([]);const[interviews,setInterviews]=useState<Interview[]>([]);const[events,setEvents]=useState<Event[]>([]);const[runs,setRuns]=useState<AutomationRun[]>([]);const[stats,setStats]=useState<Stats>(initialStats);const[health,setHealth]=useState<Health|null>(null);
  const[error,setError]=useState('');const[notice,setNotice]=useState('');const[busy,setBusy]=useState('');const[jobModal,setJobModal]=useState(false);const[uploadModal,setUploadModal]=useState(false);const[interviewModal,setInterviewModal]=useState(false);const[selected,setSelected]=useState<Candidate|null>(null);const[search,setSearch]=useState('');const[jobFilter,setJobFilter]=useState('all');const[aiFilter,setAiFilter]=useState('all');const[candidatePage,setCandidatePage]=useState(1);const[candidatePageSize,setCandidatePageSize]=useState(10);
- const[jobForm,setJobForm]=useState({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});
+ const[jobSearch,setJobSearch]=useState('');const[jobOrder,setJobOrder]=useState('newest');const[jobPage,setJobPage]=useState(1);const[jobPageSize,setJobPageSize]=useState(6);const[jobForm,setJobForm]=useState({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});
  const[uploadForm,setUploadForm]=useState({name:'',email:'',jobId:''});const[cvFile,setCvFile]=useState<File|null>(null);
  const[scheduleForm,setScheduleForm]=useState({candidateId:'',startsAt:'',durationMinutes:'30',mode:'online',meetingLink:'',notes:''});
  useEffect(()=>{fetch('/api/session').then(r=>r.json()).then(d=>setAuth(!!d.authenticated)).catch(()=>setAuth(false));},[]);
@@ -48,7 +48,31 @@ export default function Page(){
     const candidateStart=(currentCandidatePage-1)*candidatePageSize;
     const visibleCandidates=sorted.slice(candidateStart,candidateStart+candidatePageSize);
     useEffect(()=>{setCandidatePage(1)},[search,jobFilter,aiFilter,candidatePageSize]);
- async function saveJob(e:FormEvent){e.preventDefault();await task('job',async()=>{await api('/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(jobForm)});setJobModal(false);setJobForm({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});success('Đã tạo tin tuyển dụng và lưu vào PostgreSQL.');});}
+ const filteredJobs=useMemo(()=>{
+      const query=jobSearch.trim().toLocaleLowerCase('vi');
+      return jobs.filter(j=>
+        [j.title,j.department,j.location,j.description]
+          .some(v=>String(v||'').toLocaleLowerCase('vi').includes(query))
+      ).sort((a,b)=>
+        jobOrder==='name'
+          ?a.title.localeCompare(b.title,'vi')
+          :jobOrder==='applicants'
+            ?candidates.filter(c=>c.job_id===b.id).length-
+             candidates.filter(c=>c.job_id===a.id).length
+            :(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0)
+      );
+    },[jobs,candidates,jobSearch,jobOrder]);
+
+    const jobPages=Math.max(1,Math.ceil(filteredJobs.length/jobPageSize));
+    const safeJobPage=Math.min(jobPage,jobPages);
+    const visibleJobs=filteredJobs.slice(
+      (safeJobPage-1)*jobPageSize,
+      safeJobPage*jobPageSize
+    );
+
+    useEffect(()=>{setJobPage(1)},[jobSearch,jobOrder,jobPageSize]);
+
+    async function saveJob(e:FormEvent){e.preventDefault();await task('job',async()=>{await api('/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(jobForm)});setJobModal(false);setJobForm({title:'',department:'',location:'Đà Nẵng / Remote',description:'',requirements:''});success('Đã tạo tin tuyển dụng và lưu vào PostgreSQL.');});}
  async function uploadCv(e:FormEvent){e.preventDefault();if(!cvFile){setError('Chọn CV PDF hoặc DOCX.');return}await task('upload',async()=>{const data=new FormData();data.append('file',cvFile);data.append('jobId',uploadForm.jobId);data.append('name',uploadForm.name);data.append('email',uploadForm.email);const result:Candidate=await api('/candidates/upload',{method:'POST',body:data});setUploadModal(false);setUploadForm({name:'',email:'',jobId:''});setCvFile(null);setTab('candidates');setSelected(result);success(result.ai_status==='ready'?`Groq đã phân tích CV thật, điểm ${result.score}/100.`:result.ai_status==='pending'?'Đã lưu CV! n8n đang gọi Groq thật; bảng sẽ tự cập nhật khi có kết quả.':'Đã lưu CV, nhưng AI báo lỗi. Mở hồ sơ và bấm phân tích lại.');});}
  async function analyze(id:string){await task('analyze',async()=>{const r:Candidate=await api('/candidates/'+id+'/analyze',{method:'POST'});setSelected(r);success(r.ai_status==='ready'?`Groq vừa phân tích thành công: ${r.score}/100.`:'Groq gặp lỗi. Xem chi tiết trong hồ sơ.');});}
  function openSchedule(c:Candidate){setSelected(c);setScheduleForm({candidateId:c.id,startsAt:'',durationMinutes:'30',mode:'online',meetingLink:'',notes:''});setInterviewModal(true);}
@@ -62,7 +86,61 @@ export default function Page(){
  <div className="content-shell"><header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14}/><b>{tabs.find(t=>t.id===tab)?.label}</b></div><div className="top-actions"><Pill tone={health?.aiConfigured?'green':'amber'}><span className="status-light on"/> {health?.aiConfigured?'Groq Connected':'Groq chưa cấu hình'}</Pill><button className="icon-button" title="Tải lại dữ liệu" onClick={()=>task('refresh',async()=>{await load();success('Đã làm mới dữ liệu.')})}><RefreshCw size={18} className={busy==='refresh'?'spin':''}/></button><div className="avatar">AD</div></div></header>
  <main className="main-content">{error&&<div className="alert error top-alert"><CircleAlert size={18}/><span>{error}</span><button onClick={()=>setError('')}><X size={15}/></button></div>}{notice&&<div className="alert success top-alert"><CheckCircle2 size={18}/><span>{notice}</span><button onClick={()=>setNotice('')}><X size={15}/></button></div>}
  {tab==='overview'&&<><SectionHead eyebrow="RECRUITMENT INTELLIGENCE" title="Tổng quan tuyển dụng" desc="Theo dõi hoạt động tuyển dụng và kết quả phân tích thực từ Groq." action={<button className="button primary" onClick={()=>jobs.length?setUploadModal(true):setJobModal(true)}><Plus size={18}/>{jobs.length?'Thêm CV ứng viên':'Tạo vị trí đầu tiên'}</button>}/><div className="stat-grid">{[{label:'Vị trí đang tuyển',value:stats.open_jobs,icon:BriefcaseBusiness,theme:'blue'},{label:'Tổng số ứng viên',value:stats.candidates,icon:Users,theme:'purple'},{label:'CV đã phân tích',value:stats.analyzed,icon:Sparkles,theme:'green'},{label:'Lịch phỏng vấn',value:stats.interviews,icon:CalendarDays,theme:'orange'}].map(s=><div className="stat-card" key={s.label}><div className={'stat-icon '+s.theme}><s.icon size={21}/></div><span>{s.label}</span><strong>{s.value}</strong><small>Dữ liệu trong PostgreSQL</small></div>)}</div><div className="insight-grid"><section className="insight-card"><div className="insight-title"><span><Activity size={17}/> Tiến độ sàng lọc AI</span><b>{screeningRate}%</b></div><div className="progress-track"><span style={{width:`${Math.min(100,screeningRate)}%`}}/></div><p>{stats.analyzed} / {stats.candidates} hồ sơ đã được phân tích</p></section><section className="insight-card"><div className="insight-title"><span><CalendarDays size={17}/> Tỷ lệ lên lịch phỏng vấn</span><b>{interviewRate}%</b></div><div className="progress-track interview"><span style={{width:`${Math.min(100,interviewRate)}%`}}/></div><p>{stats.interviews} lịch phỏng vấn / {stats.candidates} hồ sơ</p></section><section className="insight-card insight-actions"><div className="insight-title"><span><Sparkles size={17}/> Công việc cần chú ý</span></div><div className="attention-list"><span>{pendingCount} CV chờ AI</span><span>{failedCount} CV cần kiểm tra</span></div><button className="text-button" onClick={()=>setTab('candidates')}>Quản lý ứng viên <ArrowRight size={15}/></button></section></div><div className="quick-actions"><span>THAO TÁC NHANH</span><button className="button outline" onClick={()=>setJobModal(true)}><BriefcaseBusiness size={16}/> Tạo vị trí</button><button className="button outline" disabled={!jobs.length} onClick={()=>setUploadModal(true)}><FolderUp size={16}/> Tải CV</button><button className="button outline" onClick={()=>setTab('interviews')}><CalendarDays size={16}/> Xem lịch</button><button className="button outline" onClick={()=>setTab('automation')}><Workflow size={16}/> Theo dõi n8n</button></div><div className="two-cols"><section className="panel"><div className="panel-heading"><div><h2>Ứng viên nổi bật</h2><p>Xếp hạng theo điểm Groq, chỉ mang tính hỗ trợ</p></div><button className="text-button" onClick={()=>setTab('candidates')}>Xem tất cả <ArrowRight size={15}/></button></div>{candidates.filter(c=>c.ai_status==='ready').length===0?<Empty icon={Users} title="Chưa có ứng viên được phân tích" description="Hãy tạo vị trí tuyển dụng, tải CV và để Groq phân tích." onClick={()=>jobs.length?setUploadModal(true):setJobModal(true)} action={jobs.length?'Tải CV':'Tạo vị trí'}/>:<div className="short-list">{candidates.filter(c=>c.ai_status==='ready').sort((a,b)=>(b.score ?? -1)-(a.score ?? -1)).slice(0,5).map((c,i)=><button className="candidate-line" key={c.id} onClick={()=>{setTab('candidates');setSelected(c)}}><div className="rank">#{i+1}</div><div className="candidate-avatar">{c.name.charAt(0).toUpperCase()}</div><div className="grow"><strong>{c.name}</strong><small>{c.job_title}</small></div><span className={'score '+scoreColor(c.score||0)}>{c.score}/100</span><ChevronRight size={16} className="muted"/></button>)}</div>}</section><section className="panel"><div className="panel-heading"><div><h2>Hoạt động gần đây</h2><p>Nhật ký thật từ NestJS & PostgreSQL</p></div><Activity size={18} className="muted"/></div>{events.length===0?<Empty icon={Activity} title="Chưa có hoạt động" description="Các bước tuyển dụng sẽ hiển thị ở đây."/>:<div className="activity-list">{events.slice(0,6).map(e=><div className="activity-row" key={e.id}><span className="activity-dot"/><div><p>{e.message}</p><small>{timeAgo(e.created_at)}</small></div></div>)}</div>}</section></div><section className="panel stack-panel"><div className="panel-heading"><div><h2>Kiến trúc hệ thống</h2><p>Luồng xử lý từ lúc tải CV tới email phỏng vấn</p></div></div><div className="flow-steps">{[{icon:FolderUp,title:'CV PDF / DOCX',sub:'Tải lên hồ sơ'},{icon:Bot,title:'Groq API',sub:'Đánh giá AI thật'},{icon:Database,title:'PostgreSQL',sub:'Lưu điểm & xếp hạng'},{icon:Workflow,title:'n8n',sub:'Workflow tự động'},{icon:Mail,title:'Gmail SMTP',sub:'Gửi thư mời thật'}].map((s,i)=><div className="flow-chunk" key={s.title}><div className="flow-box"><s.icon size={22}/><strong>{s.title}</strong><small>{s.sub}</small></div>{i<4&&<ArrowRight size={17} className="flow-arrow"/>}</div>)}</div></section></>}
- {tab==='jobs'&&<><SectionHead eyebrow="HIRING PIPELINE" title="Vị trí tuyển dụng" desc="Tạo mô tả và yêu cầu công việc làm tiêu chí đánh giá CV." action={<button className="button primary" onClick={()=>setJobModal(true)}><Plus size={18}/> Tạo vị trí</button>}/><div className="job-grid">{jobs.map(job=><div className="job-card" key={job.id}><div className="job-card-head"><span className="job-illustration"><BriefcaseBusiness size={22}/></span><Pill tone="green">Đang tuyển</Pill></div><h2>{job.title}</h2><p>{job.description}</p><div className="meta-line"><span><Database size={14}/> {job.department}</span><span><Link2 size={14}/> {job.location}</span></div><div className="job-footer"><span><Users size={15}/> {candidates.filter(c=>c.job_id===job.id).length} ứng viên</span><button className="button outline small" onClick={()=>{setUploadForm(f=>({...f,jobId:job.id}));setUploadModal(true)}}>Tải CV <ArrowRight size={15}/></button></div><details className="job-requirements"><summary>Xem yêu cầu tuyển dụng</summary><p>{job.requirements}</p></details></div>)}{jobs.length===0&&<div className="full-grid"><Empty icon={BriefcaseBusiness} title="Chưa có vị trí tuyển dụng" description="Tạo một vị trí và nêu rõ kỹ năng/kinh nghiệm cần thiết để Groq có cơ sở đánh giá." action="Tạo vị trí ngay" onClick={()=>setJobModal(true)}/></div>}</div></>}
+ {tab==='jobs'&&<><SectionHead eyebrow="HIRING PIPELINE" title="Vị trí tuyển dụng" desc="Tạo mô tả và yêu cầu công việc làm tiêu chí đánh giá CV." action={<button className="button primary" onClick={()=>setJobModal(true)}><Plus size={18}/> Tạo vị trí</button>}/><div className="job-toolbar">
+      <div className="search">
+        <Search size={17}/>
+        <input
+          aria-label="Tìm vị trí tuyển dụng"
+          placeholder="Tìm vị trí, phòng ban, địa điểm..."
+          value={jobSearch}
+          onChange={e=>setJobSearch(e.target.value)}
+        />
+      </div>
+      <select
+        aria-label="Sắp xếp vị trí"
+        value={jobOrder}
+        onChange={e=>setJobOrder(e.target.value)}
+      >
+        <option value="newest">Mới nhất</option>
+        <option value="name">Tên A–Z</option>
+        <option value="applicants">Nhiều ứng viên</option>
+      </select>
+      <span className="result-count">{filteredJobs.length} vị trí</span>
+    </div>
+    <div className="job-grid">{visibleJobs.map(job=><div className="job-card" key={job.id}><div className="job-card-head"><span className="job-illustration"><BriefcaseBusiness size={22}/></span><Pill tone="green">Đang tuyển</Pill></div><h2>{job.title}</h2><p>{job.description}</p><div className="meta-line"><span><Database size={14}/> {job.department}</span><span><Link2 size={14}/> {job.location}</span></div><div className="job-footer"><span><Users size={15}/> {candidates.filter(c=>c.job_id===job.id).length} ứng viên</span><button className="button outline small" onClick={()=>{setUploadForm(f=>({...f,jobId:job.id}));setUploadModal(true)}}>Tải CV <ArrowRight size={15}/></button></div><details className="job-requirements"><summary>Xem yêu cầu tuyển dụng</summary><p>{job.requirements}</p></details></div>)}{filteredJobs.length===0&&<div className="full-grid"><Empty icon={BriefcaseBusiness} title={jobs.length===0?"Chưa có vị trí tuyển dụng":"Không tìm thấy vị trí phù hợp"} description={jobs.length===0?"Tạo một vị trí và nêu rõ kỹ năng/kinh nghiệm cần thiết để Groq có cơ sở đánh giá.":"Thử tìm từ khóa hoặc phòng ban khác."} action="Tạo vị trí ngay" onClick={()=>setJobModal(true)}/></div>}</div>
+    {filteredJobs.length>0&&
+      <div className="job-pagination">
+        <span>
+          Hiển thị {(safeJobPage-1)*jobPageSize+1}–
+          {Math.min(safeJobPage*jobPageSize,filteredJobs.length)}
+          / {filteredJobs.length} vị trí
+        </span>
+        <div className="job-page-actions">
+          <select
+            aria-label="Số vị trí mỗi trang"
+            value={jobPageSize}
+            onChange={e=>setJobPageSize(Number(e.target.value))}
+          >
+            <option value={6}>6 / trang</option>
+            <option value={12}>12 / trang</option>
+            <option value={24}>24 / trang</option>
+          </select>
+          <button
+            className="button outline small"
+            type="button"
+            disabled={safeJobPage<=1}
+            onClick={()=>setJobPage(safeJobPage-1)}
+          >Trước</button>
+          <strong>Trang {safeJobPage} / {jobPages}</strong>
+          <button
+            className="button outline small"
+            type="button"
+            disabled={safeJobPage>=jobPages}
+            onClick={()=>setJobPage(safeJobPage+1)}
+          >Sau</button>
+        </div>
+      </div>
+    }</>}
  {tab==='candidates'&&<><SectionHead eyebrow="AI TALENT SCORING" title="Ứng viên & xếp hạng AI" desc="Điểm số từ Groq API; so sánh với tiêu chí công việc. Người tuyển dụng phải duyệt kết quả." action={<button className="button primary" disabled={!jobs.length} onClick={()=>setUploadModal(true)}><FolderUp size={18}/> Tải CV & phân tích</button>}/><div className="panel table-panel"><div className="filter-row"><div className="search"><Search size={17}/><input placeholder="Tìm ứng viên, email, vị trí..." value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={jobFilter} onChange={e=>setJobFilter(e.target.value)}><option value="all">Tất cả vị trí</option>{jobs.map(j=><option key={j.id} value={j.id}>{j.title}</option>)}</select><select aria-label="Trạng thái AI" value={aiFilter} onChange={e=>setAiFilter(e.target.value)}>
       <option value="all">Tất cả trạng thái</option>
       <option value="ready">Đã phân tích</option>
